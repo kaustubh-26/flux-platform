@@ -3,8 +3,44 @@ import WeatherCard from './components/WeatherCard';
 import NewsCard from './components/NewsCard';
 import StockCard from './components/StockCard';
 import CryptoCard from './components/CryptoCard';
+import { useEffect, useState } from 'react';
+
+interface Location {
+  city: string,
+  region: string,
+  country: string,
+  lat: string,
+  lon: string,
+  ip: string
+}
 
 function App() {
+
+  const [location, setLocation] = useState<Location | null>(null);
+
+  useEffect(() => {
+      fetch("https://ipwho.is/")
+        .then((res) => res.json())
+        .then((data) => {
+          const loc: Location = {
+            city: data.city,
+            region: data.region,
+            country: data.country,
+            lat: data.latitude,
+            lon: data.longitude,
+            ip: data.ip
+          };
+          setLocation(loc);
+        })
+        .catch((err) => console.error("Location Error:", err));
+
+  }, []);
+
+  useEffect(() => {
+    if (location) {
+      console.log('location:', location);
+    }
+  });
 
   return (
     <>
@@ -15,7 +51,11 @@ function App() {
             <p className="text-slate-400 text-[12px]">Weather · News · Stocks · Crypto</p>
           </div>
           <div className='w-[10vw]'>
-            <div className="md:text-xl text-sm float-end pt-1">Hi, User</div>
+            <div className='grid grid-cols-1'>
+              <div className='inline-flex'>
+                <div className="md:text-xl text-sm float-end pt-1">Hi, User</div>
+              </div>
+            </div>
           </div>
         </header>
 
