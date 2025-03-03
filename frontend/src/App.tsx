@@ -4,6 +4,7 @@ import NewsCard from './components/NewsCard';
 import StockCard from './components/StockCard';
 import CryptoCard from './components/CryptoCard';
 import { useEffect, useState } from 'react';
+import { useInternet } from './hooks/useInternet';
 
 interface Location {
   city: string,
@@ -17,8 +18,10 @@ interface Location {
 function App() {
 
   const [location, setLocation] = useState<Location | null>(null);
+  const online = useInternet();
 
   useEffect(() => {
+    if (online) {
       fetch("https://ipwho.is/")
         .then((res) => res.json())
         .then((data) => {
@@ -33,6 +36,19 @@ function App() {
           setLocation(loc);
         })
         .catch((err) => console.error("Location Error:", err));
+    } else {
+      // Fallback: Default location = Delhi
+      const fallback: Location = {
+        city: "New Delhi",
+        region: "Delhi",
+        country: "India",
+        lat: "28.6139",
+        lon: "77.2090",
+        ip: "0.0.0.0"
+      };
+
+      setLocation(fallback);
+    }
 
   }, []);
 
@@ -55,6 +71,7 @@ function App() {
               <div className='inline-flex'>
                 <div className="md:text-xl text-sm float-end pt-1">Hi, User</div>
               </div>
+              <div className="md:text-sm text-xs float-end pt-1">Status: {online ? "🟢 Online" : "🔴 Offline"}</div>
             </div>
           </div>
         </header>
