@@ -9,6 +9,10 @@ const io = new Server(server);
 io.on('connection', (socket: Socket) => {
     console.log('Client connected:', socket.id);
 
+    socket.on('userLocationUpdate', (locationData) => {
+        console.log('Received user location:', locationData);
+    });
+
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
     });
