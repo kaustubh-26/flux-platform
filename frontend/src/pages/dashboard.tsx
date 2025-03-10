@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import CryptoCard from "../components/CryptoCard";
 import Header from "../components/Header";
 import NewsCard from "../components/NewsCard";
@@ -6,32 +6,42 @@ import StockCard from "../components/StockCard";
 import WeatherCard from "../components/WeatherCard";
 import { useSocket } from "../context/socketContext";
 import { useLocation } from "../hooks/useLocation";
+import { LocalStorage } from "../utils";
+import debounce from 'lodash.debounce';
+
 
 const DashboardPage = () => {
 
     const location = useLocation();
     const { socket } = useSocket();
+    const sendRef = useRef(
+        debounce((socket: any, location: any, id: string) => {
+            socket.emit('userLocationUpdate', location, id);
+        }, 2000) // adjust debounce interval as needed
+    );
 
     useEffect(() => {
         // Check if socket is available, if not, show an alert
         if (!socket) return;
 
-        const storedId = localStorage.getItem('userid');
+        const storedId = LocalStorage.get('userid');
         if (location) {
+            console.log('storedId:getUserId::',storedId);
             if (!storedId) {
                 socket.emit('getUserId');
             }
         }
 
         const handler = (id: string) => {
+
             if (!storedId) {
-                localStorage.setItem('userid', id);
-                socket.emit('userLocationUpdate', location);
+                LocalStorage.set('userid', id);
+                sendRef.current(socket, location, id);
             }
         }
 
         socket.on('userUniqueId', handler);
-
+        
         return () => {
             socket.off('userUniqueId', handler);
         };

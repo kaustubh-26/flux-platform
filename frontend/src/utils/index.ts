@@ -7,7 +7,7 @@ export class LocalStorage {
     // Get value from local storage
     static get(key: string) {
         if(!isBrowser) return;
-        const value = localStorage.getItem(key);
+        const value = sessionStorage.getItem(key);
         if(value) {
             try {
                 return JSON.parse(value);
@@ -21,18 +21,18 @@ export class LocalStorage {
     // Set value in local storage
     static set(key: string, value: any) {
         if(!isBrowser) return;
-        localStorage.setItem(key, JSON.stringify(value));
+        sessionStorage.setItem(key, JSON.stringify(value));
     }
 
     // Remove value from local storage
     static remove(key: string) {
         if(!isBrowser) return;
-        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
     }
 
     // Clear all items in local storage
     static clear() {
         if(!isBrowser) return;
-        localStorage.clear();
+        sessionStorage.clear();
     }
 }
