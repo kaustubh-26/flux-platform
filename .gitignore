@@ -1,4 +1,4 @@
 .env
-node_modules
-package-lock.json
 valkey_pass.txt
+package-lock.json
+node_modules
