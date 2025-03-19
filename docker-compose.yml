@@ -59,10 +59,20 @@ services:
       - valkey_pass
     command: >
       sh -c "valkey-server
+      --requirepass \"$$(cat /run/secrets/valkey_pass)\"
       --appendonly yes
-      --maxmemory 256mb
+      --appendfilename appendonly.aof
+      --appendfsync everysec
+      --no-appendfsync-on-rewrite yes
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --maxmemory 128mb
       --maxmemory-policy allkeys-lru
-      --requirepass \"$$(cat /run/secrets/valkey_pass)\""
+      --notify-keyspace-events Ex
+      --lazyfree-lazy-eviction yes
+      --lazyfree-lazy-expire yes
+      --lazyfree-lazy-server-del yes"
 
 volumes:
   kafka-data:
