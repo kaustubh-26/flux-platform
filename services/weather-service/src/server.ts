@@ -8,11 +8,13 @@ import { WeatherData } from './interfaces/weatherData';
 import { WeatherApiResponse } from './interfaces/weather';
 import { WeatherApiSchema } from './schemas/weather.schema';
 
+const httpsAgent = new https.Agent({
+    keepAlive: true,
+    maxSockets: 10,
+});
 const axiosClient = axios.create({
-    timeout: 8000,
-    httpsAgent: new https.Agent({
-        keepAlive: false, // Disable broken keep-alive sockets
-    }),
+    timeout: 10000,
+    httpsAgent
 });
 
 
@@ -59,12 +61,12 @@ const redisOpts: RedisOptions = {
     host: process.env.VALKEY_HOST || '127.0.0.1',
     port: Number(process.env.VALKEY_PORT) || 6379,
     password: process.env.VALKEY_PASSWORD || undefined,
-    retryStrategy: (times: any) => {
+    retryStrategy: () => {
         if (isShuttingDown) {
             return null;
         }
-        const delay = Math.min(times * 50, 2000);
-        return delay;
+        return 5000; // best-effort cache retry
+
     },
     maxRetriesPerRequest: null,
     enableReadyCheck: true,
@@ -80,7 +82,7 @@ redis.on('connect', () => {
 
 redis.on('error', (err) => {
     isCacheAvailable = false;
-    // logger.warn({ err }, 'Valkey unavailable, running without cache');
+    logger.warn('Valkey unavailable, running without cache');
 });
 
 redis.on('close', () => {
@@ -94,9 +96,9 @@ redis.on('close', () => {
 // -------------------------------------------------
 class WeatherService {
 
-    async createResponse(city: string, data: any) {
+    async createResponse(city: string, data: WeatherApiResponse) {
         const weatherData: WeatherData = {
-            city,
+            city: city,
             temperature_c: data.current.temp_c,
             temperature_f: data.current.temp_f,
             condition: data.current.condition.text,
@@ -141,12 +143,6 @@ class WeatherService {
             logger.error('Service is shutting down');
         }
 
-        const controller = new AbortController();
-
-        const timeout = setTimeout(() => {
-            controller.abort();
-        }, 8000); // hard timeout
-
         try {
             // Call external API
             const url = 'https://api.weatherapi.com/v1/forecast.json';
@@ -159,8 +155,6 @@ class WeatherService {
                     alerts: 'yes',
                     key: process.env.WEATHER_API_KEY,
                 },
-                timeout: 10000,
-                signal: controller.signal,
             });
 
             // runtime validation
@@ -200,8 +194,6 @@ class WeatherService {
             );
             return null; // return null if failed
 
-        } finally {
-            clearTimeout(timeout);
         }
     }
 
@@ -217,10 +209,11 @@ let poller: NodeJS.Timeout;
 (async () => {
     const ws = new WeatherService();
 
-    // Clear cache
-    const deleted = await redis.del('weather:Pune');
-    logger.info(`Deleted keys: ${deleted}`);
-
+    if (isCacheAvailable && !isShuttingDown) {
+        // Clear cache
+        const deleted = await redis.del('weather:Pune');
+        logger.info(`Deleted keys: ${deleted}`);
+    }
     let response = await ws.getData("Pune");
     logger.info({ response }, 'Successfully Fetched Weather Data');
 
@@ -254,11 +247,15 @@ async function shutdown(signal: string) {
             logger.info('Poller stopped');
         }
 
+        logger.info('Destroying HTTP agent...');
+        httpsAgent.destroy();
+
         logger.info('Closing Valkey connection...');
         redis.disconnect(); // force close (no await)
         logger.info('Valkey disconnected');
 
-        process.exit(0);
+        setTimeout(() => process.exit(0), 3000);
+
     } catch (err) {
         logger.error({ err }, 'Error during shutdown');
         process.exit(1);
