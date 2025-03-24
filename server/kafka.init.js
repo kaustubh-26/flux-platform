@@ -26,16 +26,19 @@ async function createTopics() {
                 topic: 'user.location.reported'
             },
             {
-                topic: 'weather.service.update'
+                topic: 'weather.service.command.fetch'
             },
             {
-                topic: 'news.service.update'
+                topic: 'weather.service.event.updated'
             },
             {
-                topic: 'stock.service.update'
+                topic: 'news.service.event.updated'
             },
             {
-                topic: 'crypto.service.update'
+                topic: 'stock.service.event.updated'
+            },
+            {
+                topic: 'crypto.service.event.updated'
             }
         ];
 
