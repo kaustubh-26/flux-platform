@@ -1,14 +1,14 @@
 export interface WeatherData {
     city: string,
-    temperature_c: number,
-    temperature_f: number,
+    temperatureC: number,
+    temperatureF: number,
     condition: string,
     humidity: number,
-    wind_mph: number,
-    wind_kph: number,
-    wind_degree: number,
-    wind_dir: string,
+    windMph: number,
+    windKph: number,
+    windDegree: number,
+    windDir: string,
     icon: string,
-    last_updated: string,
-    timestamp: number
+    lastUpdated: string,
+    fetchedAt: number
 }

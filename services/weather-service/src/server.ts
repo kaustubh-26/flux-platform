@@ -4,9 +4,13 @@ import { z } from 'zod';
 import axios from 'axios';
 import https from 'https';
 import IORedis, { RedisOptions } from 'ioredis';
+import { Kafka, logLevel, Producer } from 'kafkajs';
 import { WeatherData } from './interfaces/weatherData';
 import { WeatherApiResponse } from './interfaces/weather';
 import { WeatherApiSchema } from './schemas/weather.schema';
+import { formatIST } from './utils/time';
+import { WeatherResult } from './interfaces/weatherResult';
+import { LocationSchema } from './interfaces/location';
 
 const httpsAgent = new https.Agent({
     keepAlive: true,
@@ -16,6 +20,15 @@ const axiosClient = axios.create({
     timeout: 10000,
     httpsAgent
 });
+// -------------------------------------------------
+// Circuit Breaker (Weather API)
+// -------------------------------------------------
+let consecutiveFailures = 0;
+let breakerOpenUntil = 0;
+
+const FAILURE_THRESHOLD = 3;   // open breaker after 3 consecutive failures
+const COOLDOWN_MS = 60_000;    // 1 minute cooldown
+
 
 
 // -------------------------------------------------
@@ -76,19 +89,146 @@ const redis = new IORedis(redisOpts);
 let isCacheAvailable = false;
 
 redis.on('connect', () => {
-    isCacheAvailable = true;
-    logger.info('✓ Valkey connected');
+    if (!isCacheAvailable) {
+        isCacheAvailable = true;
+        logger.info('Valkey connected');
+    }
 });
 
 redis.on('error', (err) => {
-    isCacheAvailable = false;
-    logger.warn('Valkey unavailable, running without cache');
+    if (isCacheAvailable) {
+        isCacheAvailable = false;
+        logger.warn(
+            { err: err.message },
+            'Valkey unavailable, running without cache'
+        );
+    }
 });
 
 redis.on('close', () => {
-    isCacheAvailable = false;
-    logger.warn('Valkey connection closed');
+    if (isCacheAvailable) {
+        isCacheAvailable = false;
+        logger.warn('Valkey connection closed');
+    }
 });
+
+
+// -------------------------------------------------
+// Kafka connection
+// -------------------------------------------------
+const kafka = new Kafka({
+    clientId: 'weather-service',
+    brokers: [process.env.KAFKA_BROKER_ADDRESS || 'kafka:9092'],
+    logLevel: logLevel.NOTHING,
+    connectionTimeout: 10000,    // ✅ valid here
+    authenticationTimeout: 10000 // optional, also client-level
+});
+
+const producer: Producer = kafka.producer({
+    idempotent: true, // enable idempotence for safe retries
+    retry: {
+        initialRetryTime: 300,      // ms, flat delay for 1st retry [page:1]
+        retries: 20,                // Finite limit prevents infinite hangs
+        factor: 0.2,                // Randomization factor (±20%) [page:1]
+        multiplier: 2,              // Exponential growth multiplier [page:1]
+        maxRetryTime: 30000,        // Cap total retry window at 30s
+    },
+    maxInFlightRequests: 5,       // Limit parallelism during retries
+});
+
+const consumer = kafka.consumer({
+    groupId: 'weather-group',
+});
+
+let kafkaAvailable = false;
+let kafkaStarting = false;
+
+async function initKafkaSafely() {
+    if (kafkaStarting) return;
+    kafkaStarting = true;
+
+    for (; ;) {
+        try {
+            await producer.connect();
+            await consumer.connect();
+
+            await consumer.subscribe({
+                topic: 'weather.service.command.fetch',
+                fromBeginning: true,
+            });
+
+            await consumer.run({
+                eachMessage: async ({ topic, message }) => {
+                    if (!kafkaAvailable) {
+                        kafkaAvailable = true;
+                        logger.info('Kafka recovered');
+                    }
+
+                    // existing logic
+                    const key = message.key?.toString();
+                    const value = message.value?.toString();
+
+                    logger.debug({ topic, value }, 'Received Data from kafka');
+
+                    // Process the request
+                    if (value) {
+                        const raw = JSON.parse(value);
+
+                        const result = LocationSchema.safeParse(raw.data);
+
+                        logger.info({ result }, 'Consumed message');
+
+                        const city = result.data?.city;
+                        if (city) {
+                            const response = await ws.getData(city);
+
+                            try {
+                                if (!kafkaAvailable) {
+                                    logger.warn('Kafka unavailable, skipping publish');
+                                    return;
+                                }
+
+                                // Send to Kafka
+                                await producer.send({
+                                    topic: 'weather.service.event.updated',
+                                    messages: [{ value: JSON.stringify(response) }]
+                                });
+
+                                if (!kafkaAvailable) {
+                                    kafkaAvailable = true;
+                                    logger.info('Kafka recovered');
+                                }
+
+                                logger.info('Data sent to Kafka');
+                            } catch (err) {
+                                kafkaAvailable = false; // set Kafka unavailable
+
+                                logger.warn(
+                                    { err: (err as Error).message },
+                                    'Kafka publish failed, marking Kafka unavailable'
+                                );
+                            }
+                        }
+                    }
+                },
+            });
+
+            kafkaAvailable = true;
+            logger.info('Kafka connected');
+            return;
+        } catch (err) {
+            kafkaAvailable = false;
+            logger.warn(
+                { err: (err as Error).message },
+                'Kafka unavailable, retrying in 10s'
+            );
+
+            await new Promise(res => setTimeout(res, 10_000));
+        }
+    }
+}
+initKafkaSafely();
+
 
 
 // -------------------------------------------------
@@ -96,36 +236,42 @@ redis.on('close', () => {
 // -------------------------------------------------
 class WeatherService {
 
-    async createResponse(city: string, data: WeatherApiResponse) {
+    createResponse(city: string, data: WeatherApiResponse): WeatherData {
         const weatherData: WeatherData = {
             city: city,
-            temperature_c: data.current.temp_c,
-            temperature_f: data.current.temp_f,
+            temperatureC: data.current.temp_c,
+            temperatureF: data.current.temp_f,
             condition: data.current.condition.text,
             humidity: data.current.humidity,
-            wind_mph: data.current.wind_mph,
-            wind_kph: data.current.wind_kph,
-            wind_degree: data.current.wind_degree,
-            wind_dir: data.current.wind_dir,
+            windMph: data.current.wind_mph,
+            windKph: data.current.wind_kph,
+            windDegree: data.current.wind_degree,
+            windDir: data.current.wind_dir,
             icon: data.current.condition.icon,
-            last_updated: data.current.last_updated,
-            timestamp: Date.now()
+            lastUpdated: data.current.last_updated,
+            fetchedAt: Date.now()
         };
         return weatherData;
     }
 
-    async getData(city: string) {
+    async getData(city: string): Promise<WeatherResult> {
+        const eventTimestamp = Date.now();
         const cacheKey = `weather:${city}`;
 
+        // Cache first (best effort)
         if (isCacheAvailable) {
             try {
                 // Get cached data from Valkey
-                const lastSent = await redis.get(cacheKey);
-                if (lastSent) {
-                    let data = JSON.parse(lastSent);
-                    logger.info(`${city} found in weather cache, getting data from cache`);
-                    const weatherData = await this.createResponse(city, data);
-                    return weatherData;
+                const cached = await redis.get(cacheKey);
+                if (cached) {
+                    let data = JSON.parse(cached);
+                    logger.info({ city }, 'Weather cache hit');
+                    return {
+                        status: 'success',
+                        source: 'cache',
+                        data: this.createResponse(city, data),
+                        timestamp: eventTimestamp
+                    };
                 }
             } catch (err) {
                 logger.warn({ err }, 'Cache read failed, falling back to API');
@@ -134,13 +280,27 @@ class WeatherService {
         }
 
         logger.info(`${city} fetching from external api`);
-        const data = await this.fetchWeather(cacheKey, city);
+        const data = await this.fetchWeather(cacheKey, city, eventTimestamp);
         return data;
     }
 
-    async fetchWeather(cacheKey: string, city: string) {
-        if (isShuttingDown) {
-            logger.error('Service is shutting down');
+    async fetchWeather(cacheKey: string, city: string, eventTimestamp: number): Promise<WeatherResult> {
+
+        // -------------------------------------------------
+        // CIRCUIT BREAKER GUARD (BEFORE API CALL)
+        // -------------------------------------------------
+        const now = Date.now();
+
+        if (breakerOpenUntil > now) {
+            logger.warn(
+                { openUntil: formatIST(breakerOpenUntil) },
+                'Circuit breaker open, skipping WeatherAPI call'
+            );
+            return {
+                status: 'unavailable',
+                reason: 'circuit_open',
+                timestamp: eventTimestamp,
+            };
         }
 
         try {
@@ -157,42 +317,70 @@ class WeatherService {
                 },
             });
 
-            // runtime validation
+            // Runtime validation
             const parsed = WeatherApiSchema.parse(response.data);
 
-            if (!parsed?.current) {
-                logger.error('Invalid weather API response');
-            }
+            // -------------------------------------------------
+            // CIRCUIT BREAKER RESET (SUCCESS)
+            // -------------------------------------------------
+            consecutiveFailures = 0;
+            breakerOpenUntil = 0;
 
+            // Cache write (best effort)
             if (isCacheAvailable && !isShuttingDown) {
                 const now = Date.now();
                 const ttlSeconds = 6 * 60 * 60; // 21600 seconds
                 await redis.set(
                     cacheKey,
-                    JSON.stringify(response.data),
+                    JSON.stringify(parsed),
                     'EX',
                     ttlSeconds
                 );
-                logger.info(`${city} stored to cache with ttl:${ttlSeconds} at ${now}`)
+                logger.debug(`${city} stored to cache with ttl:${ttlSeconds} at ${now}`)
             }
 
-
-            const weatherData = await this.createResponse(city, response.data);
-            return weatherData;
+            return {
+                status: 'success',
+                source: 'api',
+                data: this.createResponse(city, parsed),
+                timestamp: eventTimestamp,
+            };
         } catch (err: any) {
-            if (axios.isCancel(err)) {
-                logger.warn('Axios request cancelled due to shutdown');
-                return null;
+
+            // -------------------------------------------------
+            // CIRCUIT BREAKER FAILURE COUNT
+            // -------------------------------------------------
+            consecutiveFailures++;
+
+            if (consecutiveFailures >= FAILURE_THRESHOLD) {
+                breakerOpenUntil = Date.now() + COOLDOWN_MS;
+
+                logger.error(
+                    {
+                        failures: consecutiveFailures,
+                        cooldownMs: COOLDOWN_MS,
+                    },
+                    'Circuit breaker opened for WeatherAPI'
+                );
             }
 
-            logger.error(
-                {
-                    message: err.message,
-                    code: err.code
-                },
-                'Weather API request failed'
-            );
-            return null; // return null if failed
+            // Error classification
+            if (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED') {
+                logger.warn('Weather API request timed out');
+            } else {
+                logger.error(
+                    { message: err.message, code: err.code },
+                    'Weather API request failed'
+                );
+            }
+            return {
+                status: 'unavailable',
+                reason:
+                    err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED'
+                        ? 'timeout'
+                        : 'api_error',
+                timestamp: eventTimestamp,
+            };
 
         }
     }
@@ -204,34 +392,7 @@ class WeatherService {
 // -------------------------------------------------
 // Fetch Data
 // -------------------------------------------------
-let poller: NodeJS.Timeout;
-
-(async () => {
-    const ws = new WeatherService();
-
-    if (isCacheAvailable && !isShuttingDown) {
-        // Clear cache
-        const deleted = await redis.del('weather:Pune');
-        logger.info(`Deleted keys: ${deleted}`);
-    }
-    let response = await ws.getData("Pune");
-    logger.info({ response }, 'Successfully Fetched Weather Data');
-
-    poller = setInterval(async () => {
-        if (isShuttingDown) return;
-
-        try {
-            const response = await ws.getData("Pune");
-            if (response) {
-                logger.info({ response }, 'Successfully Fetched Weather Data');
-            } else {
-                logger.warn('No weather data this cycle');
-            }
-        } catch (err) {
-            logger.error({ err }, 'Unexpected polling error');
-        }
-    }, 10000);
-})();
+const ws = new WeatherService();
 
 
 // -------------------------------------------------
@@ -242,10 +403,6 @@ async function shutdown(signal: string) {
     isShuttingDown = true;
     logger.info(`Received ${signal}. Shutting down gracefully...`);
     try {
-        if (poller) {
-            clearInterval(poller);
-            logger.info('Poller stopped');
-        }
 
         logger.info('Destroying HTTP agent...');
         httpsAgent.destroy();
@@ -253,6 +410,14 @@ async function shutdown(signal: string) {
         logger.info('Closing Valkey connection...');
         redis.disconnect(); // force close (no await)
         logger.info('Valkey disconnected');
+
+        try {
+            logger.info('Disconnecting Kafka producer and consumer...');
+            await producer.disconnect();
+            await consumer.disconnect();
+        } catch (err) {
+            logger.warn({ err }, 'Error while disconnecting Kafka producer');
+        }
 
         setTimeout(() => process.exit(0), 3000);
 
