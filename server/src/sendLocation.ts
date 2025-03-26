@@ -30,7 +30,7 @@ export async function sendLocationIfChanged(valkeyClient: any, producer: any, so
     try {
         // Send to Kafka
         await producer.send({
-            topic: 'user.location.reported',
+            topic: 'weather.service.command.fetch',
             messages: [{
                 key: socket.id,
                 value: JSON.stringify(payload)

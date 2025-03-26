@@ -33,9 +33,19 @@ const env = envSchema.parse(process.env);
 const logger = pino({
     level: env.NODE_ENV === 'development' ? 'debug' : 'info',
     base: { pid: process.pid },
-    timestamp: pino.stdTimeFunctions.isoTime
+    timestamp: pino.stdTimeFunctions.isoTime,
+    transport: env.NODE_ENV === 'development'
+        ? {
+            target: 'pino-pretty',
+            options: {
+                colorize: true,
+                translateTime: 'yyyy-mm-dd HH:MM:ss',
+                ignore: 'pid,hostname',
+            },
+        }
+        : undefined,
 });
-console.log(env.NODE_ENV, logger.level);
+logger.info(env.NODE_ENV, logger.level);
 
 
 // -------------------------------------------------
