@@ -6,11 +6,12 @@ import https from 'https';
 import IORedis, { RedisOptions } from 'ioredis';
 import { Kafka, logLevel, Producer } from 'kafkajs';
 import { WeatherData } from './interfaces/weatherData';
-import { WeatherApiResponse } from './interfaces/weather';
+import { WeatherApiResponse, Hour } from './interfaces/weather';
 import { WeatherApiSchema } from './schemas/weather.schema';
 import { formatIST } from './utils/time';
 import { WeatherResult } from './interfaces/weatherResult';
 import { LocationSchema } from './interfaces/location';
+import { getCurrentHourForecast } from './utils/currentData';
 
 const httpsAgent = new https.Agent({
     keepAlive: true,
@@ -120,8 +121,8 @@ const kafka = new Kafka({
     clientId: 'weather-service',
     brokers: [process.env.KAFKA_BROKER_ADDRESS || 'kafka:9092'],
     logLevel: logLevel.NOTHING,
-    connectionTimeout: 10000,    // ✅ valid here
-    authenticationTimeout: 10000 // optional, also client-level
+    connectionTimeout: 10000,
+    authenticationTimeout: 10000
 });
 
 const producer: Producer = kafka.producer({
@@ -154,61 +155,72 @@ async function initKafkaSafely() {
 
             await consumer.subscribe({
                 topic: 'weather.service.command.fetch',
-                fromBeginning: true,
+                fromBeginning: false,
             });
 
             await consumer.run({
                 eachMessage: async ({ topic, message }) => {
-                    if (!kafkaAvailable) {
-                        kafkaAvailable = true;
-                        logger.info('Kafka recovered');
-                    }
+                    try {
+                        if (!kafkaAvailable) {
+                            kafkaAvailable = true;
+                            logger.info('Kafka recovered');
+                        }
 
-                    // existing logic
-                    const key = message.key?.toString();
-                    const value = message.value?.toString();
+                        // existing logic
+                        const key = message.key?.toString();
+                        const value = message.value?.toString();
 
-                    logger.debug({ topic, value }, 'Received Data from kafka');
+                        logger.debug({ topic, value }, 'Received Data from kafka');
 
-                    // Process the request
-                    if (value) {
-                        const raw = JSON.parse(value);
+                        // Process the request
+                        if (value) {
+                            const raw = JSON.parse(value);
 
-                        const result = LocationSchema.safeParse(raw.data);
+                            const result = LocationSchema.safeParse(raw.data);
 
-                        logger.info({ result }, 'Consumed message');
+                            logger.info({ result }, 'Consumed message');
 
-                        const city = result.data?.city;
-                        if (city) {
-                            const response = await ws.getData(city);
+                            const city = result.data?.city;
+                            if (city) {
+                                const response = await ws.getData(city);
 
-                            try {
-                                if (!kafkaAvailable) {
-                                    logger.warn('Kafka unavailable, skipping publish');
-                                    return;
+                                try {
+                                    if (!kafkaAvailable) {
+                                        logger.warn('Kafka unavailable, skipping publish');
+                                        return;
+                                    }
+
+                                    // Send to Kafka
+                                    await producer.send({
+                                        topic: 'weather.service.event.updated',
+                                        messages: [{ value: JSON.stringify(response) }]
+                                    });
+
+                                    if (!kafkaAvailable) {
+                                        kafkaAvailable = true;
+                                        logger.info('Kafka recovered');
+                                    }
+
+                                    logger.info('Data sent to Kafka');
+                                } catch (err) {
+                                    kafkaAvailable = false; // set Kafka unavailable
+
+                                    logger.warn(
+                                        { err: (err as Error).message },
+                                        'Kafka publish failed, marking Kafka unavailable'
+                                    );
                                 }
-
-                                // Send to Kafka
-                                await producer.send({
-                                    topic: 'weather.service.event.updated',
-                                    messages: [{ value: JSON.stringify(response) }]
-                                });
-
-                                if (!kafkaAvailable) {
-                                    kafkaAvailable = true;
-                                    logger.info('Kafka recovered');
-                                }
-
-                                logger.info('Data sent to Kafka');
-                            } catch (err) {
-                                kafkaAvailable = false; // set Kafka unavailable
-
-                                logger.warn(
-                                    { err: (err as Error).message },
-                                    'Kafka publish failed, marking Kafka unavailable'
-                                );
                             }
                         }
+                    } catch (err) {
+                        logger.error(
+                            {
+                                err,
+                                topic,
+                                value: message.value?.toString(),
+                            },
+                            'Unhandled error while processing Kafka message'
+                        );
                     }
                 },
             });
@@ -236,22 +248,29 @@ initKafkaSafely();
 // -------------------------------------------------
 class WeatherService {
 
-    createResponse(city: string, data: WeatherApiResponse): WeatherData {
-        const weatherData: WeatherData = {
-            city: city,
-            temperatureC: data.current.temp_c,
-            temperatureF: data.current.temp_f,
-            condition: data.current.condition.text,
-            humidity: data.current.humidity,
-            windMph: data.current.wind_mph,
-            windKph: data.current.wind_kph,
-            windDegree: data.current.wind_degree,
-            windDir: data.current.wind_dir,
-            icon: data.current.condition.icon,
-            lastUpdated: data.current.last_updated,
-            fetchedAt: Date.now()
+    createResponse(city: string, data: WeatherApiResponse | Hour): WeatherData {
+        const source = 'current' in data ? data.current : data;
+        return {
+            city,
+            temperatureC: source.temp_c,
+            temperatureF: source.temp_f,
+            feelslikeC: source.feelslike_c,
+            condition: source.condition.text,
+            humidity: source.humidity,
+            windMph: source.wind_mph,
+            windKph: source.wind_kph,
+            windDegree: source.wind_degree,
+            windDir: source.wind_dir,
+            icon: source.condition.icon,
+            pressureMb: source.pressure_mb,
+            visibilityKm: source.vis_km,
+            airQuality: source.air_quality,
+            lastUpdated:
+                'current' in data
+                    ? data.current.last_updated
+                    : data.time,
+            fetchedAt: Date.now(),
         };
-        return weatherData;
     }
 
     async getData(city: string): Promise<WeatherResult> {
@@ -265,11 +284,13 @@ class WeatherService {
                 const cached = await redis.get(cacheKey);
                 if (cached) {
                     let data = JSON.parse(cached);
+                    const hourData = getCurrentHourForecast(data);
+                    logger.debug(`hourData:${JSON.stringify(hourData)}`);
                     logger.info({ city }, 'Weather cache hit');
                     return {
                         status: 'success',
                         source: 'cache',
-                        data: this.createResponse(city, data),
+                        data: this.createResponse(city, hourData),
                         timestamp: eventTimestamp
                     };
                 }
@@ -390,7 +411,7 @@ class WeatherService {
 
 
 // -------------------------------------------------
-// Fetch Data
+// Service Instance
 // -------------------------------------------------
 const ws = new WeatherService();
 
