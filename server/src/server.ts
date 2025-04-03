@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { Location } from './interfaces/location';
 import { sendLocationIfChanged } from './sendLocation';
 import IORedis, { RedisOptions } from 'ioredis';
+import { initWeatherConsumer } from './modules/weatherConsumer';
 
 // -------------------------------------------------
 // Load & validate environment variables
@@ -58,6 +59,8 @@ const kafka = new Kafka({
 });
 
 let producer: Producer;
+let weatherConsumer: any;
+
 
 // Helper to (re)connect the producer with retry logic
 async function initProducer() {
@@ -68,6 +71,8 @@ async function initProducer() {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             await producer.connect();
+            // Start domain-specific consumers
+            weatherConsumer = await initWeatherConsumer(kafka, io, logger);
             logger.info('Kafka producer connected');
             break;
         } catch (err) {
@@ -133,6 +138,15 @@ io.on('connection', (socket: Socket) => {
     socket.on('userLocationUpdate', async (locationData: Location, userId: string) => {
         logger.debug({ socketId: socket.id, locationData, userId }, 'Location received');
 
+        // 1) Derive city name (adjust according to your Location type)
+        const cityName = locationData.city || 'Delhi';
+        const weatherRoom = `weather.${cityName}`;
+        logger.debug(`cityName:${cityName}, weatherRoom: ${weatherRoom}`);
+
+        // 2) Join user to city-specific weather room
+        socket.join(weatherRoom);
+        logger.info({ socketId: socket.id, room: weatherRoom }, 'User joined weather room');
+
         logger.debug({
             key: socket.id,
             value: JSON.stringify({
@@ -174,6 +188,10 @@ async function shutdown(signal: string) {
         if (producer) {
             await producer.disconnect();
             logger.info('Kafka producer disconnected');
+        }
+        if (weatherConsumer) {
+            await weatherConsumer.disconnect();
+            logger.info('Kafka weatherConsumer disconnected');
         }
 
         process.exit(0);
