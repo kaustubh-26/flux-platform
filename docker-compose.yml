@@ -74,6 +74,30 @@ services:
       --lazyfree-lazy-expire yes
       --lazyfree-lazy-server-del yes"
 
+  # -------------------------------------------------
+  # Weather Service (Node.js 22.17.1)
+  # -------------------------------------------------
+  weather-service:
+    build:
+      context: .
+      dockerfile: services/weather-service/Dockerfile
+    container_name: weather-service
+    env_file:
+      - services/weather-service/.env
+    depends_on:
+      - kafka
+      - valkey
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      KAFKA_BROKER: kafka:9092
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
+    secrets:
+      - valkey_pass
+
+
 volumes:
   kafka-data:
   valkey-data:

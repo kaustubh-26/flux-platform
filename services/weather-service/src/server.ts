@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import pino from 'pino';
+import fs from 'fs';
 import { z } from 'zod';
 import axios from 'axios';
 import https from 'https';
@@ -67,14 +68,40 @@ const logger = pino({
 });
 logger.info(env.NODE_ENV, logger.level);
 
+logger.info({
+    kafka: process.env.KAFKA_BROKER_ADDRESS,
+    valkey: process.env.VALKEY_HOST,
+    nodeEnv: env.NODE_ENV,
+}, 'Runtime configuration');
+
+
+function getValkeyPassword() {
+    if (process.env.VALKEY_PASSWORD) {
+        return process.env.VALKEY_PASSWORD;
+    }
+
+    if (process.env.VALKEY_PASSWORD_FILE) {
+        try {
+            return fs
+                .readFileSync(process.env.VALKEY_PASSWORD_FILE, 'utf8')
+                .trim();
+        } catch (err) {
+            logger.warn('Failed to read Valkey password from secret file');
+        }
+    }
+
+    return undefined;
+}
+
+
 // -------------------------------------------------
 // Valkey connection - In-memory cache
 // -------------------------------------------------
 let isShuttingDown = false;
 const redisOpts: RedisOptions = {
-    host: process.env.VALKEY_HOST || '127.0.0.1',
+    host: process.env.VALKEY_HOST || 'valkey',
     port: Number(process.env.VALKEY_PORT) || 6379,
-    password: process.env.VALKEY_PASSWORD || undefined,
+    password: getValkeyPassword(),
     retryStrategy: () => {
         if (isShuttingDown) {
             return null;
