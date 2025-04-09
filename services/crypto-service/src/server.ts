@@ -5,6 +5,7 @@ import axios from 'axios';
 import https from 'https';
 import { getTopGainers } from "./modules/topGainers";
 import { getTopLosers } from "./modules/topLosers";
+import { shutdownCache } from './cache';
 
 const httpsAgent = new https.Agent({
     keepAlive: true,
@@ -22,7 +23,6 @@ dotenv.config();
 
 const envSchema = z.object({
     KAFKA_BROKER_ADDRESS: z.string().min(1),
-    COINGECKO_MARKETS_URL: z.string().min(1),
     NODE_ENV: z.enum(['development', 'production']).default('production')
 });
 
@@ -35,18 +35,31 @@ const env = envSchema.parse(process.env);
 // -------------------------------------------------
 (async () => {
 
-    const gainers = await getTopGainers(axiosClient, process.env.COINGECKO_MARKETS_URL, 10);
+    const gainers = await getTopGainers(axiosClient);
     console.log(gainers);
 
     setTimeout(() => {
         (async () => {
 
-            const losers = await getTopLosers(axiosClient, process.env.COINGECKO_MARKETS_URL, 10);
+            const losers = await getTopLosers(axiosClient);
             console.log(losers);
 
 
         })();
     }, 2000);
+
+    setTimeout(() => {
+        (async () => {
+
+            const gainers = await getTopGainers(axiosClient);
+            console.log(gainers);
+
+            const losers = await getTopLosers(axiosClient);
+            console.log(losers);
+
+
+        })();
+    }, 4000);
 
 })();
 
@@ -61,6 +74,10 @@ async function shutdown(signal: string) {
 
         logger.info('Destroying HTTP agent...');
         httpsAgent.destroy();
+
+        logger.info('Closing Valkey connection...');
+        shutdownCache();
+        logger.info('Valkey disconnected');
 
         setTimeout(() => process.exit(0), 3000);
 

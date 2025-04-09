@@ -1,30 +1,34 @@
-import { CryptoMarketListSchema, CryptoMarket } from "../schemas/cryptoMarket.schema";
-import { coinGeckoBreaker } from "./coingeckoBreaker";
+import { AxiosInstance } from "axios";
+import { cacheGet, cacheSet } from "../cache";
+import { MoverData } from "../interfaces/moverData";
+import { MoverResult } from "../interfaces/moverResult";
+import { logger } from "../logger";
+import { marketToMoverData } from "../mappers/marketToMoverData";
+import { getMarkets } from "./getMarkets";
+
+const CACHE_KEY = (limit: number) => `crypto:top-gainers:1h:${limit}`;
+
+const TTL_SECONDS = 60;
 
 export async function getTopGainers(
-    axiosClient: any,
-    COINGECKO_MARKETS_URL: string | undefined,
+    axiosClient: AxiosInstance,
     limit: number = 10
-): Promise<CryptoMarket[]> {
+): Promise<MoverResult> {
+    const eventTimestamp = Date.now();
 
-    if (!coinGeckoBreaker.guard()) {
-        return [];
+    // Try cache first
+    const cached = await cacheGet<MoverData[]>(CACHE_KEY(limit));
+    if (cached) {
+        return {
+            status: 'success',
+            source: 'cache',
+            data: cached,
+            timestamp: eventTimestamp
+        };
     }
 
     try {
-        const res = await axiosClient.get(COINGECKO_MARKETS_URL, {
-            params: {
-                vs_currency: "usd",
-                order: "market_cap_desc",
-                per_page: 100,
-                page: 1,
-                price_change_percentage: "1h",
-            },
-        });
-
-        const markets = CryptoMarketListSchema.parse(res.data);
-
-        coinGeckoBreaker.success();
+        const markets = await getMarkets(axiosClient);
 
         const sorted = markets
             .filter(
@@ -48,10 +52,29 @@ export async function getTopGainers(
                 return b.total_volume - a.total_volume;
             });
 
-        return sorted.slice(0, limit);
+        const topGainersData = sorted.slice(0, limit);
 
-    } catch (err) {
-        coinGeckoBreaker.failure(err);
-        return [];
+        const moverData = marketToMoverData(topGainersData)
+
+        // Cache final result
+        await cacheSet(CACHE_KEY(limit), moverData, TTL_SECONDS);
+
+        return {
+            status: 'success',
+            source: 'api',
+            data: moverData,
+            timestamp: eventTimestamp
+        };
+
+    } catch (err: any) {
+        logger.warn({ err }, "CoinGecko API failed");
+        return {
+            status: 'unavailable',
+            reason:
+                err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED'
+                    ? 'timeout'
+                    : 'api_error',
+            timestamp: eventTimestamp,
+        };
     }
 }

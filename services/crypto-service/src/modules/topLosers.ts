@@ -1,58 +1,80 @@
-import { CryptoMarketListSchema, CryptoMarket } from "../schemas/cryptoMarket.schema";
-import { coinGeckoBreaker } from "./coingeckoBreaker";
+import { AxiosInstance } from "axios";
+import { cacheGet, cacheSet } from "../cache";
+import { MoverData } from "../interfaces/moverData";
+import { MoverResult } from "../interfaces/moverResult";
+import { logger } from "../logger";
+import { marketToMoverData } from "../mappers/marketToMoverData";
+import { getMarkets } from "./getMarkets";
+
+const CACHE_KEY = (limit: number) => `crypto:top-losers:1h:${limit}`;
+
+const TTL_SECONDS = 60;
 
 export async function getTopLosers(
-    axiosClient: any,
-    COINGECKO_MARKETS_URL: string | undefined,
+    axiosClient: AxiosInstance,
     limit: number = 10
-): Promise<CryptoMarket[]> {
+): Promise<MoverResult> {
+    const eventTimestamp = Date.now();
 
-    if (!coinGeckoBreaker.guard()) {
-        return [];
+    // Try cache first
+    const cached = await cacheGet<MoverData[]>(CACHE_KEY(limit));
+    if (cached) {
+        return {
+            status: 'success',
+            source: 'cache',
+            data: cached,
+            timestamp: eventTimestamp
+        };
     }
 
     try {
-        const res = await axiosClient.get(COINGECKO_MARKETS_URL, {
-            params: {
-                vs_currency: "usd",
-                order: "market_cap_desc",
-                per_page: 100,
-                page: 1,
-                price_change_percentage: "1h",
-            },
-        });
+        const markets = await getMarkets(axiosClient);
 
-        const markets = CryptoMarketListSchema.parse(res.data);
+        const sorted = markets
+            .filter(
+                (c) =>
+                    c.price_change_percentage_1h_in_currency != null &&
+                    c.market_cap_rank !== null &&
+                    c.market_cap_rank <= 100
+            )
+            .sort((a, b) => {
+                const aPct =
+                    Math.round(a.price_change_percentage_1h_in_currency! * 10) / 10;
+                const bPct =
+                    Math.round(b.price_change_percentage_1h_in_currency! * 10) / 10;
 
-        coinGeckoBreaker.success();
+                // 1️⃣ Primary: rounded 1h % ASC (biggest losers first)
+                if (aPct !== bPct) {
+                    return aPct - bPct;
+                }
 
-        // existing sort logic...
-         const sorted = markets
-        .filter(
-            (c) =>
-                c.price_change_percentage_1h_in_currency != null &&
-                c.market_cap_rank !== null &&
-                c.market_cap_rank <= 100
-        )
-        .sort((a, b) => {
-            const aPct =
-                Math.round(a.price_change_percentage_1h_in_currency! * 10) / 10;
-            const bPct =
-                Math.round(b.price_change_percentage_1h_in_currency! * 10) / 10;
+                // 2️⃣ Secondary: spot volume DESC
+                return b.total_volume - a.total_volume;
+            });
 
-            // 1️⃣ Primary: rounded 1h % ASC (biggest losers first)
-            if (aPct !== bPct) {
-                return aPct - bPct;
-            }
+        const topLosersData = sorted.slice(0, limit);
 
-            // 2️⃣ Secondary: spot volume DESC
-            return b.total_volume - a.total_volume;
-        });
+        const moverData = marketToMoverData(topLosersData)
 
-    return sorted.slice(0, limit);
+        // Cache final result
+        await cacheSet(CACHE_KEY(limit), moverData, TTL_SECONDS);
 
-    } catch (err) {
-        coinGeckoBreaker.failure(err);
-        return [];
+        return {
+            status: 'success',
+            source: 'api',
+            data: moverData,
+            timestamp: eventTimestamp
+        };
+
+    } catch (err: any) {
+        logger.warn({ err }, "CoinGecko API failed");
+        return {
+            status: 'unavailable',
+            reason:
+                err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED'
+                    ? 'timeout'
+                    : 'api_error',
+            timestamp: eventTimestamp,
+        };
     }
 }
