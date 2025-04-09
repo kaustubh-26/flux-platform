@@ -1,6 +1,5 @@
 import dotenv from 'dotenv';
-import pino from 'pino';
-import fs from 'fs';
+import { logger } from './logger';
 import { z } from 'zod';
 import axios from 'axios';
 import https from 'https';
@@ -30,32 +29,6 @@ const envSchema = z.object({
 type Env = z.infer<typeof envSchema>;
 
 const env = envSchema.parse(process.env);
-
-// -------------------------------------------------
-// Logger (structured, level‑aware)
-// -------------------------------------------------
-const logger = pino({
-    level: env.NODE_ENV === 'development' ? 'debug' : 'info',
-    base: { pid: process.pid },
-    timestamp: pino.stdTimeFunctions.isoTime,
-    transport: env.NODE_ENV === 'development'
-        ? {
-            target: 'pino-pretty',
-            options: {
-                colorize: true,
-                translateTime: 'yyyy-mm-dd HH:MM:ss',
-                ignore: 'pid,hostname',
-            },
-        }
-        : undefined,
-});
-logger.info(env.NODE_ENV, logger.level);
-
-logger.info({
-    kafka: process.env.KAFKA_BROKER_ADDRESS,
-    valkey: process.env.VALKEY_HOST,
-    nodeEnv: env.NODE_ENV,
-}, 'Runtime configuration');
 
 // -------------------------------------------------
 // Crypto Service

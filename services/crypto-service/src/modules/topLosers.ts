@@ -1,39 +1,33 @@
-import axios from "axios";
 import { CryptoMarketListSchema, CryptoMarket } from "../schemas/cryptoMarket.schema";
-/**
- * CoinGecko Markets API endpoint
- */
-const COINGECKO_MARKETS_URL =
-    "https://api.coingecko.com/api/v3/coins/markets";
+import { coinGeckoBreaker } from "./coingeckoBreaker";
 
-/**
- * Fetch top losers based on:
- * 1. 1h price change percentage (ASC, rounded to 1 decimal)
- * 2. Spot volume (DESC)
- *
- * Data is validated using Zod before processing.
- *
- * @param limit number of coins to return (default: 10)
- */
 export async function getTopLosers(
     axiosClient: any,
     COINGECKO_MARKETS_URL: string | undefined,
     limit: number = 10
 ): Promise<CryptoMarket[]> {
-    const res = await axiosClient.get(COINGECKO_MARKETS_URL, {
-        params: {
-            vs_currency: "usd",
-            order: "market_cap_desc",
-            per_page: 100,
-            page: 1,
-            price_change_percentage: "1h",
-        },
-    });
 
-    // Runtime validation + type inference
-    const markets = CryptoMarketListSchema.parse(res.data);
+    if (!coinGeckoBreaker.guard()) {
+        return [];
+    }
 
-    const sorted = markets
+    try {
+        const res = await axiosClient.get(COINGECKO_MARKETS_URL, {
+            params: {
+                vs_currency: "usd",
+                order: "market_cap_desc",
+                per_page: 100,
+                page: 1,
+                price_change_percentage: "1h",
+            },
+        });
+
+        const markets = CryptoMarketListSchema.parse(res.data);
+
+        coinGeckoBreaker.success();
+
+        // existing sort logic...
+         const sorted = markets
         .filter(
             (c) =>
                 c.price_change_percentage_1h_in_currency != null &&
@@ -56,4 +50,9 @@ export async function getTopLosers(
         });
 
     return sorted.slice(0, limit);
+
+    } catch (err) {
+        coinGeckoBreaker.failure(err);
+        return [];
+    }
 }
