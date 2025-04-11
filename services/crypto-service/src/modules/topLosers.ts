@@ -32,7 +32,8 @@ export async function getTopLosers(
 
         const sorted = markets
             .filter(
-                (c) =>
+                (c):c is typeof c & { total_volume: number } => 
+                    c.total_volume !== null &&
                     c.price_change_percentage_1h_in_currency != null &&
                     c.market_cap_rank !== null &&
                     c.market_cap_rank <= 100

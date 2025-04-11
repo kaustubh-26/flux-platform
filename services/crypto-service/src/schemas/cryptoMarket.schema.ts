@@ -7,22 +7,23 @@ export const CryptoMarketSchema = z.object({
   image: z.string().url(),
 
   current_price: z.number(),
-  market_cap: z.number(),
-  market_cap_rank: z.number(),
+
+  market_cap: z.number().nullable(),
+  market_cap_rank: z.number().nullable(),
 
   fully_diluted_valuation: z.number().nullable().optional(),
-  total_volume: z.number(),
+  total_volume: z.number().nullable(),
 
-  high_24h: z.number(),
-  low_24h: z.number(),
+  high_24h: z.number().nullable(),
+  low_24h: z.number().nullable(),
 
-  price_change_24h: z.number(),
-  price_change_percentage_24h: z.number(),
+  price_change_24h: z.number().nullable(),
+  price_change_percentage_24h: z.number().nullable(),
 
-  market_cap_change_24h: z.number(),
-  market_cap_change_percentage_24h: z.number(),
+  market_cap_change_24h: z.number().nullable(),
+  market_cap_change_percentage_24h: z.number().nullable(),
 
-  circulating_supply: z.number(),
+  circulating_supply: z.number().nullable(),
   total_supply: z.number().nullable(),
   max_supply: z.number().nullable(),
 
