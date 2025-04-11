@@ -7,14 +7,14 @@ export const ConditionSchema = z.object({
 });
 
 export const AirQualitySchema = z.object({
-  co: z.number(),
-  no2: z.number(),
-  o3: z.number(),
-  so2: z.number(),
-  pm2_5: z.number(),
-  pm10: z.number(),
-  "us-epa-index": z.number(),
-  "gb-defra-index": z.number(),
+  co: z.number().optional(),
+  no2: z.number().optional(),
+  o3: z.number().optional(),
+  so2: z.number().optional(),
+  pm2_5: z.number().optional(),
+  pm10: z.number().optional(),
+  "us-epa-index": z.number().optional(),
+  "gb-defra-index": z.number().optional(),
 });
 
 export const HourSchema = z.object({
@@ -52,11 +52,11 @@ export const HourSchema = z.object({
   uv: z.number(),
   gust_mph: z.number(),
   gust_kph: z.number(),
-  air_quality: AirQualitySchema,
-  short_rad: z.number(),
-  diff_rad: z.number(),
-  dni: z.number(),
-  gti: z.number(),
+  air_quality: AirQualitySchema.optional(),
+  short_rad: z.number().optional(),
+  diff_rad: z.number().optional(),
+  dni: z.number().optional(),
+  gti: z.number().optional(),
 });
 
 export const WeatherApiSchema = z.object({
@@ -101,11 +101,11 @@ export const WeatherApiSchema = z.object({
     uv: z.number(),
     gust_mph: z.number(),
     gust_kph: z.number(),
-    air_quality: AirQualitySchema,
-    short_rad: z.number(),
-    diff_rad: z.number(),
-    dni: z.number(),
-    gti: z.number(),
+    air_quality: AirQualitySchema.optional(),
+    short_rad: z.number().optional(),
+    diff_rad: z.number().optional(),
+    dni: z.number().optional(),
+    gti: z.number().optional(),
   }),
 
   forecast: z.object({

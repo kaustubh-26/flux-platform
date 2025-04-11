@@ -366,7 +366,16 @@ class WeatherService {
             });
 
             // Runtime validation
-            const parsed = WeatherApiSchema.parse(response.data);
+            const parsed = WeatherApiSchema.safeParse(response.data);
+            logger.info(parsed)
+
+            if (!parsed.success) {
+                logger.error(
+                    { issues: parsed.error.issues },
+                    'Weather API schema mismatch'
+                );
+                throw new Error('Invalid Weather API response');
+            }
 
             // -------------------------------------------------
             // CIRCUIT BREAKER RESET (SUCCESS)
@@ -374,13 +383,15 @@ class WeatherService {
             consecutiveFailures = 0;
             breakerOpenUntil = 0;
 
+            const weather = parsed.data;
+
             // Cache write (best effort)
             if (isCacheAvailable && !isShuttingDown) {
                 const now = Date.now();
                 const ttlSeconds = 6 * 60 * 60; // 21600 seconds
                 await redis.set(
                     cacheKey,
-                    JSON.stringify(parsed),
+                    JSON.stringify(weather),
                     'EX',
                     ttlSeconds
                 );
@@ -390,7 +401,7 @@ class WeatherService {
             return {
                 status: 'success',
                 source: 'api',
-                data: this.createResponse(city, parsed),
+                data: this.createResponse(city, weather),
                 timestamp: eventTimestamp,
             };
         } catch (err: any) {

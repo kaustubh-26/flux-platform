@@ -14,7 +14,7 @@ export interface WeatherData {
     icon: string;
     pressureMb: number;
     visibilityKm: number;
-    airQuality: AirQuality;
+    airQuality?: AirQuality;
     lastUpdated: string;
     fetchedAt: number;
 }
