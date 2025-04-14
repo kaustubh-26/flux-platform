@@ -10,6 +10,10 @@ import { Location } from './interfaces/location';
 import { sendLocationIfChanged } from './sendLocation';
 import IORedis, { RedisOptions } from 'ioredis';
 import { initWeatherConsumer } from './modules/weatherConsumer';
+import { initCryptoConsumer } from './modules/cryptoConsumer';
+import { cacheGet } from './cache';
+
+export const CRYPTO_MOVERS_CACHE_KEY = 'crypto:top-movers';
 
 // -------------------------------------------------
 // Load & validate environment variables
@@ -60,6 +64,7 @@ const kafka = new Kafka({
 
 let producer: Producer;
 let weatherConsumer: any;
+let cryptoConsumer: any;
 
 
 // Helper to (re)connect the producer with retry logic
@@ -73,6 +78,10 @@ async function initProducer() {
             await producer.connect();
             // Start domain-specific consumers
             weatherConsumer = await initWeatherConsumer(kafka, io, logger);
+            cryptoConsumer = await initCryptoConsumer(kafka, io, logger);
+            // Refresh crypto data on BFF startup
+            await sendCryptoMoversRefresh(producer, logger);
+
             logger.info('Kafka producer connected');
             break;
         } catch (err) {
@@ -82,6 +91,27 @@ async function initProducer() {
         }
     }
 }
+
+async function sendCryptoMoversRefresh(producer: Producer, logger: pino.Logger) {
+    const payload = {
+        requestedBy: 'bff',
+        reason: 'startup',
+        timestamp: new Date().toISOString(),
+    };
+
+    await producer.send({
+        topic: 'crypto.service.command.topmovers.refresh',
+        messages: [
+            {
+                key: 'topmovers',
+                value: JSON.stringify(payload),
+            },
+        ],
+    });
+
+    logger.info('Sent crypto movers refresh command');
+}
+
 
 // -------------------------------------------------
 // Valkey connection - In-memory cache
@@ -135,6 +165,7 @@ io.on('connection', (socket: Socket) => {
         socket.emit('userUniqueId', uniqueId);
     });
 
+    // User joining event
     socket.on('userLocationUpdate', async (locationData: Location, userId: string) => {
         logger.debug({ socketId: socket.id, locationData, userId }, 'Location received');
 
@@ -146,6 +177,10 @@ io.on('connection', (socket: Socket) => {
         // 2) Join user to city-specific weather room
         socket.join(weatherRoom);
         logger.info({ socketId: socket.id, room: weatherRoom }, 'User joined weather room');
+
+        // Join global crypto room
+        socket.join('crypto.global');
+        logger.info({ socketId: socket.id, room: 'crypto.global' }, 'User joined crypto global room');
 
         logger.debug({
             key: socket.id,
@@ -165,6 +200,38 @@ io.on('connection', (socket: Socket) => {
         };
         await sendLocationIfChanged(redis, producer, socket, payload, logger);
     });
+
+    // Crypto events
+    socket.on('topMoversRequest', async () => {
+        try {
+            const cached = await cacheGet<any>(CRYPTO_MOVERS_CACHE_KEY);
+            logger.debug('topMoversRequest::cached::::', cached)
+
+            if (!cached) {
+                // Get crypto data on first request if not cached
+                await sendCryptoMoversRefresh(producer, logger);
+
+                socket.emit('topMoversResponse', {
+                    status: 'loading'
+                });
+                return;
+            }
+
+            socket.emit('topMoversResponse', {
+                status: 'success',
+                source: 'cache',
+                data: cached
+            });
+
+        } catch (err) {
+            socket.emit('topMoversResponse', {
+                status: 'error',
+                message: 'Failed to fetch top movers',
+                error: (err as Error).message
+            });
+        }
+    });
+
 
     socket.on('disconnect', (reason) => {
         logger.info({ socketId: socket.id, reason }, 'Client disconnected');
@@ -194,7 +261,12 @@ async function shutdown(signal: string) {
             logger.info('Kafka weatherConsumer disconnected');
         }
 
-        process.exit(0);
+        if (cryptoConsumer) {
+            await cryptoConsumer.disconnect();
+            logger.info('Kafka cryptoConsumer disconnected');
+        }
+
+        setTimeout(() => process.exit(0), 3000);
     } catch (err) {
         logger.error({ err }, 'Error during shutdown');
         process.exit(1);
