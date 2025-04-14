@@ -1,1 +1,15 @@
 
+.thin-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.45);
+}
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148,163,184,0.35) transparent;
+}

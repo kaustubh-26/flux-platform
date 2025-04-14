@@ -17,24 +17,26 @@ const DashboardPage = () => {
     const sendRef = useRef(
         debounce((socket: any, location: any, id: string) => {
             socket.emit('userLocationUpdate', location, id);
-        }, 2000) // adjust debounce interval as needed
+        }, 1000) // debounce location updates before emitting
     );
 
     useEffect(() => {
-        // Check if socket is available, if not, show an alert
+        // Check if socket is available
         if (!socket) return;
 
         const storedId = LocalStorage.get('userid');
         if (location) {
-            console.log('storedId:getUserId::',storedId);
+            console.log('storedId:getUserId::', storedId);
             if (!storedId) {
                 socket.emit('getUserId');
+            } else {
+                sendRef.current(socket, location, storedId);
             }
         }
 
         const handler = (id: string) => {
-
-            if (!storedId) {
+            const currentId = LocalStorage.get('userid');
+            if (!currentId) {
                 LocalStorage.set('userid', id);
                 sendRef.current(socket, location, id);
             }
@@ -44,6 +46,7 @@ const DashboardPage = () => {
         
         return () => {
             socket.off('userUniqueId', handler);
+            sendRef.current.cancel(); // prevent debounced emits after unmount
         };
     }, [location, socket]);
 
