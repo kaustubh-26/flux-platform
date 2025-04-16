@@ -61,30 +61,40 @@ const kafka = new Kafka({
     brokers: [process.env.KAFKA_BROKER_ADDRESS || 'kafka:9092'],
     logLevel: logLevel.ERROR
 });
-
-let producer: Producer;
+let kafkaReady = false;
+const producer = kafka.producer({
+    idempotent: true,   // Enables idempotence
+});
 let weatherConsumer: any;
 let cryptoConsumer: any;
 
+let didInitialRefresh = false;
 
 // Helper to (re)connect the producer with retry logic
 async function initProducer() {
-    producer = kafka.producer({
-        idempotent: true,   // Enables idempotence
-    });
+
     const maxAttempts = 5;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
             await producer.connect();
             // Start domain-specific consumers
+            if (weatherConsumer) await weatherConsumer.disconnect();
+            if (cryptoConsumer) await cryptoConsumer.disconnect();
+
             weatherConsumer = await initWeatherConsumer(kafka, io, logger);
             cryptoConsumer = await initCryptoConsumer(kafka, io, logger);
-            // Refresh crypto data on BFF startup
-            await sendCryptoMoversRefresh(producer, logger);
 
+            kafkaReady = true;
             logger.info('Kafka producer connected');
+
+            if (!didInitialRefresh) {
+                // Refresh crypto data on BFF startup
+                await sendCryptoMoversRefresh(producer, logger);
+                didInitialRefresh = true;
+            }
             break;
         } catch (err) {
+            kafkaReady = false;
             logger.error({ err, attempt }, 'Kafka producer connection failed');
             if (attempt === maxAttempts) throw err;
             await new Promise(res => setTimeout(res, 2 ** attempt * 1000)); // exponential back‑off
@@ -198,6 +208,10 @@ io.on('connection', (socket: Socket) => {
             data: locationData,
             timestamp: new Date().toISOString()
         };
+        if (!kafkaReady) {
+            logger.warn('Kafka unavailable Real-time updates temporarily unavailable');
+            return;
+        }
         await sendLocationIfChanged(redis, producer, socket, payload, logger);
     });
 
@@ -208,6 +222,13 @@ io.on('connection', (socket: Socket) => {
             logger.debug('topMoversRequest::cached::::', cached)
 
             if (!cached) {
+                if (!kafkaReady) {
+                    socket.emit('topMoversResponse', {
+                        status: 'loading',
+                        message: 'Data will refresh when backend reconnects'
+                    });
+                    return;
+                }
                 // Get crypto data on first request if not cached
                 await sendCryptoMoversRefresh(producer, logger);
 
@@ -243,6 +264,12 @@ io.on('connection', (socket: Socket) => {
 // Graceful shutdown handling
 // -------------------------------------------------
 async function shutdown(signal: string) {
+    if(shuttingDown) {
+        logger.warn(`Shutdown already in progress, ignoring ${signal}`);
+        return;
+    }
+    shuttingDown = true;
+
     logger.info(`Received ${signal}. Shutting down gracefully...`);
     try {
         await io.close();
@@ -252,7 +279,7 @@ async function shutdown(signal: string) {
             logger.info('HTTP server closed');
         });
 
-        if (producer) {
+        if (producer && kafkaReady) {
             await producer.disconnect();
             logger.info('Kafka producer disconnected');
         }
@@ -280,10 +307,24 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 // -------------------------------------------------
 // Start the service
 // -------------------------------------------------
+let shuttingDown = false;
+
+async function kafkaRecoveryLoop() {
+    while (!shuttingDown) {
+        if (!kafkaReady) {
+            try {
+                logger.info('Attempting Kafka reconnect...');
+                await initProducer();
+            } catch {
+                logger.warn('Kafka still unavailable, retrying...');
+            }
+        }
+        await new Promise(r => setTimeout(r, 10_000));
+    }
+}
+
 (async () => {
     try {
-        await initProducer();
-
         const PORT = Number(env.SERVER_PORT);
         server.listen(PORT, () => {
             logger.info(`Server running on http://localhost:${PORT}`);
@@ -292,4 +333,11 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
         logger.fatal({ err }, 'Failed to start server');
         process.exit(1);
     }
+
+    initProducer().catch(err => {
+        logger.error({ err }, 'Kafka unavailable at startup, running in degraded mode');
+    });
+
+    // Background recovery loop (self-healing)
+    kafkaRecoveryLoop();
 })();
