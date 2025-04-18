@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import CryptoMoversCard from './TopMoversCard';
+import CryptoTickerCard from './CryptoTickerCard';
 
 type Tab = 'movers' | 'ticker';
 
@@ -27,18 +28,13 @@ export default function CryptoCard() {
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden p-3">
         {activeTab === 'movers' && <CryptoMoversCard />}
-        {activeTab === 'ticker' && (
-          <div className="h-full flex items-center justify-center text-slate-400">
-            Live Ticker coming soon…
-          </div>
-        )}
+        {activeTab === 'ticker' && <CryptoTickerCard />}
       </div>
     </div>
   );
 }
 
 // Tab Button
-
 function TabButton({
   active,
   children,

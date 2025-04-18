@@ -30,3 +30,23 @@ export interface CryptoMoversPayload {
     source?: 'cache' | 'api';
     data: CryptoMoversData;
 }
+
+export interface TopCoin {
+  symbol: string;
+  name: string;
+  price_inr: number;
+  change_24h: number;
+  market_cap_inr: number;
+  volume_24h_inr: number;
+  tradable: boolean;
+}
+
+export interface CryptoTopCoinsData {
+    topCoins: TopCoin[];
+}
+
+export interface CryptoTopCoinsPayload {
+    status: 'success' | 'error';
+    source?: 'cache' | 'api';
+    data: CryptoTopCoinsData;
+}

@@ -8,7 +8,6 @@ export function useTopMovers() {
 
     useEffect(() => {
         const handler = (payload: CryptoMoversPayload) => {
-            console.log('payload', payload)
             if (payload.status === 'success' &&
                 payload.data?.topGainers?.data &&
                 payload.data?.topLosers?.data
@@ -17,13 +16,13 @@ export function useTopMovers() {
             }
         };
 
-        socket?.on('topMoversResponse', handler);
+        socket?.on('cryptoTopMoversResponse', handler);
 
         // initial fetch
-        socket?.emit('topMoversRequest');
+        socket?.emit('cryptoTopMoversRequest');
 
         return () => {
-            void socket?.off('topMoversResponse', handler);
+            void socket?.off('cryptoTopMoversResponse', handler);
         };
     }, [socket]);
 
