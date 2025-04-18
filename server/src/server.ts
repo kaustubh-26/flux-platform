@@ -3,17 +3,21 @@ import http from 'http';
 import express from 'express';
 import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { Kafka, logLevel, Producer } from 'kafkajs';
+import { Consumer, Kafka, logLevel, Partitioners, Producer } from 'kafkajs';
 import pino from 'pino';
 import { z } from 'zod';
 import { Location } from './interfaces/location';
 import { sendLocationIfChanged } from './sendLocation';
 import IORedis, { RedisOptions } from 'ioredis';
 import { initWeatherConsumer } from './modules/weatherConsumer';
-import { initCryptoConsumer } from './modules/cryptoConsumer';
+import { initCryptoTopMoversConsumer } from './modules/cryptoTopMoversConsumer';
 import { cacheGet } from './cache';
+import { initCryptoTickerConsumer } from './modules/cryptoTickerConsumer';
+import { initCryptoTopCoinsConsumer } from './modules/cryptoTopCoinsConsumer';
 
 export const CRYPTO_MOVERS_CACHE_KEY = 'crypto:top-movers';
+const CRYPTO_TOPCOINS_CACHE_KEY = 'crypto:top-coins';
+export const CRYPTO_TICKER_CACHE_KEY = 'crypto:tickers';
 
 // -------------------------------------------------
 // Load & validate environment variables
@@ -59,19 +63,27 @@ logger.info(env.NODE_ENV, logger.level);
 const kafka = new Kafka({
     clientId: 'realtime-dashboard',
     brokers: [process.env.KAFKA_BROKER_ADDRESS || 'kafka:9092'],
-    logLevel: logLevel.ERROR
+    logLevel: logLevel.WARN
 });
 let kafkaReady = false;
 const producer = kafka.producer({
     idempotent: true,   // Enables idempotence
+    createPartitioner: Partitioners.LegacyPartitioner,
+
 });
 let weatherConsumer: any;
-let cryptoConsumer: any;
+let cryptoTopMoversConsumer: any;
+let cryptoTopCoinsConsumer: any;
+let cryptoTickerConsumer: Consumer;
 
 let didInitialRefresh = false;
 
 // Helper to (re)connect the producer with retry logic
 async function initProducer() {
+    if (shuttingDown) {
+        logger.info('Skipping Kafka init during shutdown');
+        return;
+    }
 
     const maxAttempts = 5;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -79,12 +91,31 @@ async function initProducer() {
             await producer.connect();
             // Start domain-specific consumers
             if (weatherConsumer) await weatherConsumer.disconnect();
-            if (cryptoConsumer) await cryptoConsumer.disconnect();
+            if (cryptoTopMoversConsumer) await cryptoTopMoversConsumer.disconnect();
+            if (cryptoTopCoinsConsumer) await cryptoTopCoinsConsumer.disconnect();
+            if (cryptoTickerConsumer) await cryptoTickerConsumer.disconnect();
 
             weatherConsumer = await initWeatherConsumer(kafka, io, logger);
-            cryptoConsumer = await initCryptoConsumer(kafka, io, logger);
+            cryptoTopMoversConsumer = await initCryptoTopMoversConsumer(kafka, io, logger);
+            cryptoTopCoinsConsumer = await initCryptoTopCoinsConsumer(kafka, io, logger);
+            cryptoTickerConsumer = await initCryptoTickerConsumer(kafka, io, logger);
+
 
             kafkaReady = true;
+
+            logger.info(
+                {
+                    kafkaReady,
+                    consumers: {
+                        weather: !!weatherConsumer,
+                        topMovers: !!cryptoTopMoversConsumer,
+                        topCoins: !!cryptoTopCoinsConsumer,
+                        ticker: !!cryptoTickerConsumer,
+                    },
+                },
+                'Kafka subsystem ready'
+            );
+
             logger.info('Kafka producer connected');
 
             if (!didInitialRefresh) {
@@ -120,6 +151,26 @@ async function sendCryptoMoversRefresh(producer: Producer, logger: pino.Logger) 
     });
 
     logger.info('Sent crypto movers refresh command');
+}
+
+async function sendCryptoTopCoinsRefresh(producer: Producer, logger: pino.Logger) {
+    const payload = {
+        requestedBy: 'bff',
+        reason: 'startup',
+        timestamp: new Date().toISOString(),
+    };
+
+    await producer.send({
+        topic: 'crypto.service.command.topcoins.refresh',
+        messages: [
+            {
+                key: 'topcoins',
+                value: JSON.stringify(payload),
+            },
+        ],
+    });
+
+    logger.info('Sent crypto top coins refresh command');
 }
 
 
@@ -216,14 +267,14 @@ io.on('connection', (socket: Socket) => {
     });
 
     // Crypto events
-    socket.on('topMoversRequest', async () => {
+    socket.on('cryptoTopMoversRequest', async () => {
         try {
             const cached = await cacheGet<any>(CRYPTO_MOVERS_CACHE_KEY);
             logger.debug('topMoversRequest::cached::::', cached)
 
             if (!cached) {
                 if (!kafkaReady) {
-                    socket.emit('topMoversResponse', {
+                    socket.emit('cryptoTopMoversResponse', {
                         status: 'loading',
                         message: 'Data will refresh when backend reconnects'
                     });
@@ -232,22 +283,59 @@ io.on('connection', (socket: Socket) => {
                 // Get crypto data on first request if not cached
                 await sendCryptoMoversRefresh(producer, logger);
 
-                socket.emit('topMoversResponse', {
+                socket.emit('cryptoTopMoversResponse', {
                     status: 'loading'
                 });
                 return;
             }
 
-            socket.emit('topMoversResponse', {
+            socket.emit('cryptoTopMoversResponse', {
                 status: 'success',
                 source: 'cache',
                 data: cached
             });
 
         } catch (err) {
-            socket.emit('topMoversResponse', {
+            socket.emit('cryptoTopMoversResponse', {
                 status: 'error',
                 message: 'Failed to fetch top movers',
+                error: (err as Error).message
+            });
+        }
+    });
+
+    socket.on('cryptoTopCoinsRequest', async () => {
+        try {
+            const cached = await cacheGet<any>(CRYPTO_TOPCOINS_CACHE_KEY);
+            logger.debug('cryptoTopCoinsRequest::cached::::', cached)
+
+            if (!cached) {
+                if (!kafkaReady) {
+                    socket.emit('cryptoTopCoinsResponse', {
+                        status: 'loading',
+                        message: 'Data will refresh when backend reconnects'
+                    });
+                    return;
+                }
+                // Get crypto data on first request if not cached
+                await sendCryptoTopCoinsRefresh(producer, logger);
+
+                socket.emit('cryptoTopCoinsResponse', {
+                    status: 'loading'
+                });
+                return;
+            }
+
+            socket.emit('cryptoTopCoinsResponse', {
+                status: 'success',
+                source: 'cache',
+                data: cached
+            });
+
+        } catch (err) {
+            socket.emit('cryptoTopCoinsResponse', {
+                status: 'error',
+                message: 'Failed to fetch crypto top coins',
                 error: (err as Error).message
             });
         }
@@ -264,11 +352,14 @@ io.on('connection', (socket: Socket) => {
 // Graceful shutdown handling
 // -------------------------------------------------
 async function shutdown(signal: string) {
-    if(shuttingDown) {
+    if (shuttingDown) {
         logger.warn(`Shutdown already in progress, ignoring ${signal}`);
         return;
     }
     shuttingDown = true;
+
+    kafkaReady = false; // stop kafka reconnect loop
+
 
     logger.info(`Received ${signal}. Shutting down gracefully...`);
     try {
@@ -279,21 +370,36 @@ async function shutdown(signal: string) {
             logger.info('HTTP server closed');
         });
 
-        if (producer && kafkaReady) {
-            await producer.disconnect();
-            logger.info('Kafka producer disconnected');
+        if (cryptoTickerConsumer) {
+            await cryptoTickerConsumer.stop();  // stop rejoin
+            await cryptoTickerConsumer.disconnect();
+            logger.info('Kafka cryptoTickerConsumer disconnected');
         }
+
         if (weatherConsumer) {
+            await weatherConsumer.stop();  // stop rejoin
             await weatherConsumer.disconnect();
             logger.info('Kafka weatherConsumer disconnected');
         }
 
-        if (cryptoConsumer) {
-            await cryptoConsumer.disconnect();
-            logger.info('Kafka cryptoConsumer disconnected');
+        if (cryptoTopMoversConsumer) {
+            await cryptoTopMoversConsumer.stop();  // stop rejoin
+            await cryptoTopMoversConsumer.disconnect();
+            logger.info('Kafka cryptoTopMoversConsumer disconnected');
         }
 
-        setTimeout(() => process.exit(0), 3000);
+        if (cryptoTopCoinsConsumer) {
+            await cryptoTopCoinsConsumer.stop();  // stop rejoin
+            await cryptoTopCoinsConsumer.disconnect();
+            logger.info('Kafka cryptoTopCoinsConsumer disconnected');
+        }
+
+        if (producer) {
+            await producer.disconnect();
+            logger.info('Kafka producer disconnected');
+        }
+
+        setTimeout(() => process.exit(0), 4000);
     } catch (err) {
         logger.error({ err }, 'Error during shutdown');
         process.exit(1);
@@ -334,9 +440,11 @@ async function kafkaRecoveryLoop() {
         process.exit(1);
     }
 
-    initProducer().catch(err => {
+    try {
+        await initProducer();   // first controlled attempt
+    } catch (err) {
         logger.error({ err }, 'Kafka unavailable at startup, running in degraded mode');
-    });
+    }
 
     // Background recovery loop (self-healing)
     kafkaRecoveryLoop();

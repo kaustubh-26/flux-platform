@@ -10,13 +10,13 @@ const TOP_MOVERS_TTL = 300; // seconds (5 minutes TTL)
 /**
  * Kafka → Socket.IO consumer for crypto realtime updates
  */
-export async function initCryptoConsumer(
+export async function initCryptoTopMoversConsumer(
     kafka: Kafka,
     io: Server,
     logger: pino.Logger
 ) {
     const consumer = kafka.consumer({
-        groupId: 'realtime-dashboard-crypto',
+        groupId: 'realtime-dashboard-crypto-topmovers',
     });
 
     await consumer.connect();
@@ -38,8 +38,7 @@ export async function initCryptoConsumer(
             try {
                 payload = JSON.parse(message.value.toString());
                 logger.debug(
-                    { payload },
-                    'Received crypto movers from Kafka'
+                    `Received crypto movers from Kafka - ${(new Date(Date.now())).toLocaleString()}`
                 );
             } catch (err) {
                 logger.error({ err }, 'Failed to parse crypto movers payload');
@@ -65,6 +64,6 @@ export async function initCryptoConsumer(
     });
 
 
-    logger.info('Crypto consumer started');
+    logger.info('Crypto TopMovers consumer started');
     return consumer;
 }
