@@ -10,5 +10,10 @@ export interface NewsCard {
   source: string;
   publishedAt: string;
   category: string[];
-  country: string;
+}
+
+export interface NewsDataResponse {
+  source: string;
+  scope: string;
+  data: NewsCard[];
 }

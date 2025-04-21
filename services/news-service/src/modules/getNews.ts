@@ -1,11 +1,12 @@
-import axios from "axios";
+import { AxiosInstance } from "axios";
 import {
   NewsApiResponseSchema,
   Article
 } from "../schemas/news.schema";
-import { NewsCard } from "../interfaces/news";
+import { NewsCard, NewsDataResponse } from "../interfaces/news";
 import { newsLimiter } from "./newsLimiter";
 import { logger } from "../logger";
+import { cacheGet, cacheSet } from "../cache";
 
 newsLimiter.on("queued", () => {
   logger.warn("News request queued due to rate limit");
@@ -14,6 +15,10 @@ newsLimiter.on("queued", () => {
 newsLimiter.on("executing", () => {
   logger.info("News request executing from queue");
 });
+
+const NEWS_CACHE_TTL = 10 * 60; // 5 minutes (seconds)
+const NEWS_CACHE_PREFIX = "news:latest";
+
 
 const BASE_URL = "https://newsdata.io/api/1/latest";
 
@@ -24,106 +29,168 @@ let consecutiveFailures = 0;
 let breakerOpenUntil = 0;
 
 const FAILURE_THRESHOLD = 3;    // failures before opening breaker
-const COOLDOWN_MS = 5 * 60_000; // 5 minutes
+const COOLDOWN_MS = 15 * 60_000; // 5 minutes
+
+const inFlight = new Map<string, Promise<NewsDataResponse>>();
 
 /**
- * Fetch top news by country & categories
+ * Fetch top news by global scope & categories
  */
 export async function getNews({
-  country = "in",
   categories = ["business", "technology", "politics"],
   language = "en",
-  apiKey = ""
+  apiKey = "",
+  axiosClient
 }: {
-  country?: string;
   categories?: string[];
   language?: string;
   apiKey: string;
-}): Promise<NewsCard[]> {
-  return newsLimiter.schedule(async () => {
-    const now = Date.now();
+  axiosClient: AxiosInstance
+}): Promise<NewsDataResponse> {
+  const now = Date.now();
+  const cacheKey = getNewsCacheKey("global", categories, language);
 
-    // -------------------------------------------------
-    // CIRCUIT BREAKER GUARD
-    // -------------------------------------------------
-    if (breakerOpenUntil > now) {
-      logger.warn(
-        { openUntil: new Date(breakerOpenUntil).toISOString() },
-        "News API circuit breaker open, skipping request"
-      );
-      throw new Error("News API circuit breaker open");
-    }
+  // -------------------------------------------------
+  // CACHE HIT (FAST PATH – NOT RATE LIMITED)
+  // -------------------------------------------------
+  const cached = await cacheGet<NewsCard[]>(cacheKey);
+  if (cached?.length) {
+    logger.debug("Serving news from cache");
+    return {
+      source: "cache",
+      scope: "global",
+      data: cached
+    };
+  }
 
-    try {
-      const response = await axios.get(BASE_URL, {
+  // CIRCUIT BREAKER CHECK (after cache)
+  if (breakerOpenUntil > now) {
+    throw new Error("News API circuit breaker open");
+  }
+
+  // SINGLE-FLIGHT
+  if (inFlight.has(cacheKey)) {
+    logger.debug("Awaiting in-flight news fetch");
+    return inFlight.get(cacheKey)!;
+  }
+
+  // RATE-LIMIT ONLY THE NETWORK CALL
+  const promise = newsLimiter
+    .schedule(() =>
+      fetchAndCacheNews({
+        categories,
+        language,
+        apiKey,
+        axiosClient,
+        cacheKey
+      })
+    )
+    .finally(() => {
+      inFlight.delete(cacheKey);
+    });
+
+  inFlight.set(cacheKey, promise);
+  return promise;
+}
+
+async function fetchAndCacheNews({
+  categories,
+  language,
+  apiKey,
+  axiosClient,
+  cacheKey
+}: {
+  categories: string[];
+  language: string;
+  apiKey: string;
+  axiosClient: AxiosInstance;
+  cacheKey: string;
+}): Promise<NewsDataResponse> {
+  try {
+    const response = await axiosClient.get(BASE_URL, {
         timeout: 10_000,
         params: {
           apikey: apiKey,
-          country,
           category: categories.join(","),
           language
         }
       });
 
-      // Runtime validation
-      const parsed = NewsApiResponseSchema.safeParse(response.data);
 
-      if (!parsed.success) {
-        logger.error(
-          { issues: parsed.error.issues },
-          "News API schema mismatch"
-        );
-        throw new Error("Invalid News API response");
-      }
+    const rawResults = Array.isArray(response.data?.results)
+      ? response.data.results
+      : [];
 
-      // -------------------------------------------------
-      // CIRCUIT BREAKER RESET (SUCCESS)
-      // -------------------------------------------------
-      consecutiveFailures = 0;
-      breakerOpenUntil = 0;
+    const newsOnly = rawResults.filter(
+      (item: any) => item.datatype === "news"
+    );
 
-      return parsed.data.results.map((article: Article): NewsCard => ({
-        id: article.article_id,
-        title: article.title,
-        description: article.description,
-        image: article.image_url,
-        url: article.link,
-        source: article.source_id,
-        publishedAt: article.pubDate,
-        category: article.category,
-        country
-      }));
+    // Runtime validation
+    const parsed = NewsApiResponseSchema.safeParse({
+      ...response.data,
+      results: newsOnly,
+    });
 
-    } catch (err: any) {
-
-      // -------------------------------------------------
-      // CIRCUIT BREAKER FAILURE COUNT
-      // -------------------------------------------------
-      consecutiveFailures++;
-
-      if (consecutiveFailures >= FAILURE_THRESHOLD) {
-        breakerOpenUntil = Date.now() + COOLDOWN_MS;
-
-        logger.error(
-          {
-            failures: consecutiveFailures,
-            cooldownMs: COOLDOWN_MS
-          },
-          "Circuit breaker opened for News API"
-        );
-      }
-
-      // Error classification
-      if (err.code === "ECONNABORTED" || err.code === "ETIMEDOUT") {
-        logger.warn("News API request timed out");
-      } else {
-        logger.error(
-          { message: err.message, code: err.code },
-          "News API request failed"
-        );
-      }
-
-      throw err;
+    if (!parsed.success) {
+      logger.warn(
+        { issues: parsed.error.issues },
+        "News API schema mismatch"
+      );
+      throw new Error("NEWS_SCHEMA_MISMATCH");
     }
-  });
+
+    const newsCards = parsed.data.results.map((article: Article): NewsCard => ({
+      id: article.article_id,
+      title: article.title,
+      description: article.description,
+      image: article.image_url,
+      url: article.link,
+      source: article.source_id,
+      publishedAt: article.pubDate,
+      category: article.category
+    }));
+
+    // Cache news
+    await cacheSet(cacheKey, newsCards, NEWS_CACHE_TTL);
+
+    consecutiveFailures = 0;
+    breakerOpenUntil = 0;
+
+    const newsResponse: NewsDataResponse = {
+      source: "api",
+      scope: "global",
+      data: newsCards
+    }
+
+    return newsResponse;
+
+  } catch (err: any) {
+    if (err.message === "NEWS_SCHEMA_MISMATCH") throw err;
+
+    // -------------------------------------------------
+    // CIRCUIT BREAKER FAILURE COUNT
+    // -------------------------------------------------
+    const isNetworkError =
+      err.code === "ECONNABORTED" ||
+      err.code === "ETIMEDOUT" ||
+      err.response?.status >= 500;
+
+    if (isNetworkError) consecutiveFailures++;
+
+    if (consecutiveFailures >= FAILURE_THRESHOLD) {
+      breakerOpenUntil = Date.now() + COOLDOWN_MS;
+      logger.error("Circuit breaker opened for News API");
+    }
+
+    throw err;
+  }
+}
+
+
+function getNewsCacheKey(
+  scope: string,
+  categories: string[],
+  language: string
+) {
+  return `${NEWS_CACHE_PREFIX}:${scope}:${language}:${categories.sort().join(",")}`;
 }
