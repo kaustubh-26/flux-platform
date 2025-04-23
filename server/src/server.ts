@@ -14,6 +14,7 @@ import { initCryptoTopMoversConsumer } from './modules/cryptoTopMoversConsumer';
 import { cacheGet } from './cache';
 import { initCryptoTickerConsumer } from './modules/cryptoTickerConsumer';
 import { initCryptoTopCoinsConsumer } from './modules/cryptoTopCoinsConsumer';
+import { initNewsConsumer } from './modules/newsConsumer';
 
 export const CRYPTO_MOVERS_CACHE_KEY = 'crypto:top-movers';
 const CRYPTO_TOPCOINS_CACHE_KEY = 'crypto:top-coins';
@@ -63,7 +64,7 @@ logger.info(env.NODE_ENV, logger.level);
 const kafka = new Kafka({
     clientId: 'realtime-dashboard',
     brokers: [process.env.KAFKA_BROKER_ADDRESS || 'kafka:9092'],
-    logLevel: logLevel.WARN
+    logLevel: logLevel.NOTHING
 });
 let kafkaReady = false;
 const producer = kafka.producer({
@@ -75,6 +76,7 @@ let weatherConsumer: any;
 let cryptoTopMoversConsumer: any;
 let cryptoTopCoinsConsumer: any;
 let cryptoTickerConsumer: Consumer;
+let newsConsumer: Consumer;
 
 let didInitialRefresh = false;
 
@@ -94,11 +96,13 @@ async function initProducer() {
             if (cryptoTopMoversConsumer) await cryptoTopMoversConsumer.disconnect();
             if (cryptoTopCoinsConsumer) await cryptoTopCoinsConsumer.disconnect();
             if (cryptoTickerConsumer) await cryptoTickerConsumer.disconnect();
+            if (newsConsumer) await newsConsumer.disconnect();
 
             weatherConsumer = await initWeatherConsumer(kafka, io, logger);
             cryptoTopMoversConsumer = await initCryptoTopMoversConsumer(kafka, io, logger);
             cryptoTopCoinsConsumer = await initCryptoTopCoinsConsumer(kafka, io, logger);
             cryptoTickerConsumer = await initCryptoTickerConsumer(kafka, io, logger);
+            newsConsumer = await initNewsConsumer(kafka, io, logger);
 
 
             kafkaReady = true;
@@ -111,6 +115,7 @@ async function initProducer() {
                         topMovers: !!cryptoTopMoversConsumer,
                         topCoins: !!cryptoTopCoinsConsumer,
                         ticker: !!cryptoTickerConsumer,
+                        news: !!newsConsumer,
                     },
                 },
                 'Kafka subsystem ready'
@@ -126,8 +131,11 @@ async function initProducer() {
             break;
         } catch (err) {
             kafkaReady = false;
-            logger.error({ err, attempt }, 'Kafka producer connection failed');
-            if (attempt === maxAttempts) throw err;
+            logger.error({ attempt }, 'Kafka producer connection failed');
+            if (attempt === maxAttempts) {
+                logger.fatal('Kafka unavailable – shutting down');
+                process.exit(1); // shutdown server - kafka is critical
+            }
             await new Promise(res => setTimeout(res, 2 ** attempt * 1000)); // exponential back‑off
         }
     }
@@ -181,18 +189,28 @@ const redisOpts: RedisOptions = {
     host: process.env.VALKEY_HOST || '127.0.0.1',
     port: Number(process.env.VALKEY_PORT) || 6379,
     password: process.env.VALKEY_PASSWORD || undefined,
-    retryStrategy: (times: any) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
+    retryStrategy: (times) => {
+        if (times > 3) return null; // stop retrying
+        return 500;
     },
     maxRetriesPerRequest: 3,
-    enableReadyCheck: true,
-    lazyConnect: false,
+    enableReadyCheck: false,
+    lazyConnect: true,
 };
-const redis = new IORedis(redisOpts);
-redis.on('connect', () => logger.info('✓ Valkey connected'));
-redis.on('error', (err: any) => logger.error('Valkey error:', err));
 
+let redisDownLogged = false;
+
+const redis = new IORedis(redisOpts);
+redis.on('connect', () => {
+    redisDownLogged = false;
+    logger.info('✓ Valkey connected');
+});
+redis.on('error', (err) => {
+    if (!redisDownLogged) {
+        logger.warn({ err }, 'Valkey unavailable – running without cache');
+        redisDownLogged = true;
+    }
+});
 
 // -------------------------------------------------
 // HTTP Server
@@ -242,6 +260,11 @@ io.on('connection', (socket: Socket) => {
         // Join global crypto room
         socket.join('crypto.global');
         logger.info({ socketId: socket.id, room: 'crypto.global' }, 'User joined crypto global room');
+
+        // Join Country news room
+        const newsRoom = `news.global`;
+        socket.join(newsRoom);
+        logger.info({ socketId: socket.id, room: newsRoom }, 'User joined news room');
 
         logger.debug({
             key: socket.id,
@@ -381,6 +404,12 @@ async function shutdown(signal: string) {
             await weatherConsumer.disconnect();
             logger.info('Kafka weatherConsumer disconnected');
         }
+        
+        if (newsConsumer) {
+            await newsConsumer.stop();  // stop rejoin
+            await newsConsumer.disconnect();
+            logger.info('Kafka newsConsumer disconnected');
+        }
 
         if (cryptoTopMoversConsumer) {
             await cryptoTopMoversConsumer.stop();  // stop rejoin
@@ -431,6 +460,12 @@ async function kafkaRecoveryLoop() {
 
 (async () => {
     try {
+        await initProducer();   // first controlled attempt
+    } catch (err) {
+        logger.error({ err }, 'Kafka unavailable at startup, running in degraded mode');
+    }
+
+    try {
         const PORT = Number(env.SERVER_PORT);
         server.listen(PORT, () => {
             logger.info(`Server running on http://localhost:${PORT}`);
@@ -438,12 +473,6 @@ async function kafkaRecoveryLoop() {
     } catch (err) {
         logger.fatal({ err }, 'Failed to start server');
         process.exit(1);
-    }
-
-    try {
-        await initProducer();   // first controlled attempt
-    } catch (err) {
-        logger.error({ err }, 'Kafka unavailable at startup, running in degraded mode');
     }
 
     // Background recovery loop (self-healing)
