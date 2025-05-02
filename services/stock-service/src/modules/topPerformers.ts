@@ -109,6 +109,13 @@ export async function getTopPerformers(params: {
   );
 
   return {
+    meta: {
+      source: 'Finnhub',
+      market: 'US',
+      exchanges: ['NYSE', 'NASDAQ'],
+      currency: 'USD',
+      timezone: 'UTC',
+    },
     timestamp: new Date().toISOString(),
     topGainers: sorted.slice(0, limit),
     topLosers: sorted.slice(-limit).reverse(),
