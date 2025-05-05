@@ -2,9 +2,8 @@ import { Kafka } from "kafkajs";
 import { Server } from "socket.io";
 import pino from 'pino';
 import { cacheSet } from "../cache";
+import { CRYPTO_GLOBAL_ROOM, CRYPTO_TOPCOINS_CACHE_KEY } from "../constants/crypto";
 
-const CRYPTO_GLOBAL_ROOM = 'crypto.global';
-const CRYPTO_TOPCOINS_CACHE_KEY = 'crypto:top-coins';
 const TOP_COINS_TTL = 300; // seconds (5 minutes TTL)
 
 export async function initCryptoTopCoinsConsumer(

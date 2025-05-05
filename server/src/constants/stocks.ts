@@ -1,0 +1,1 @@
+export const STOCK_TOP_PERFORMERS_CACHE_KEY = 'bff:stocks:top:performers';

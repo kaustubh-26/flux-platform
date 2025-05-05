@@ -2,9 +2,8 @@ import { Kafka } from 'kafkajs';
 import { Server } from 'socket.io';
 import pino from 'pino';
 import { cacheSet } from '../cache';
-import { CRYPTO_TICKER_CACHE_KEY } from '../server';
+import { CRYPTO_TICKER_CACHE_KEY, CRYPTO_GLOBAL_ROOM } from '../constants/crypto';
 
-const CRYPTO_GLOBAL_ROOM = 'crypto.global';
 const TICKER_TTL = 5; // seconds (near-realtime)
 
 const LOG_INTERVAL_MS = 30_000; // 30 seconds

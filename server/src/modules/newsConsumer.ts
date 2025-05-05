@@ -15,7 +15,7 @@ export async function initNewsConsumer(
 
   await consumer.subscribe({
     topic: 'news.service.event.updated',
-    fromBeginning: false
+    fromBeginning: true
   });
 
   await consumer.run({

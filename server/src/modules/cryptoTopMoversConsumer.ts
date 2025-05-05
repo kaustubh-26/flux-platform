@@ -2,7 +2,7 @@ import { Kafka } from 'kafkajs';
 import { Server } from 'socket.io';
 import pino from 'pino';
 import { cacheSet } from '../cache';
-import { CRYPTO_MOVERS_CACHE_KEY } from '../server';
+import { CRYPTO_MOVERS_CACHE_KEY } from '../constants/crypto';
 
 const CRYPTO_GLOBAL_ROOM = 'crypto.global';
 const TOP_MOVERS_TTL = 300; // seconds (5 minutes TTL)

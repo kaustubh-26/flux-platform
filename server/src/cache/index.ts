@@ -19,7 +19,6 @@ function getValkeyPassword() {
   }
   return undefined;
 }
-console.log('getValkeyPassword',getValkeyPassword())
 
 const redisOpts: RedisOptions = {
   host: process.env.VALKEY_HOST || "127.0.0.1",
