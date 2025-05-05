@@ -202,8 +202,6 @@ async function publishTopMovers(topic: string, message: any) {
 
     try {
 
-        logger.debug({ topic, message }, 'Received Data from kafka');
-
         // Process the request
         const gainers = await getTopGainers(axiosClient);
         const losers = await getTopLosers(axiosClient);
@@ -226,12 +224,12 @@ async function publishTopMovers(topic: string, message: any) {
             });
 
             if (!kafkaHealth.isAvailable()) {
-                // kafkaAvailable = true;
                 kafkaHealth.markUp();
                 logger.info('Kafka recovered');
             }
 
-            logger.info('Data sent to Kafka');
+            logger.info(`TopMovers Data sent to Kafka ${new Date().toLocaleString()}`);
+
         } catch (err) {
             // set Kafka unavailable
             kafkaHealth.markDown();
@@ -258,14 +256,17 @@ async function publishTopMovers(topic: string, message: any) {
 function startTopMoversScheduler() {
     const INTERVAL = 90_000;
 
-    setInterval(() => {
+    setInterval(async () => {
         publishTopMovers(
             'scheduler.crypto.topmovers.refresh',
             { value: 'scheduled' }
         );
+        await publishTopCoins();
         logger.info(
             `Top movers scheduler started (runs every ${INTERVAL} seconds). Next run at: ${(new Date(Date.now() + INTERVAL)).toLocaleString()}`
         );
+
+
     }, INTERVAL);
 
     logger.info(
@@ -277,7 +278,7 @@ function startTopMoversScheduler() {
 // Publish Top Coins
 async function publishTopCoins() {
     if (!kafkaHealth.isAvailable()) {
-        logger.warn('Kafka unavailable, skipping TopCoins publish');
+        logger.debug(`Kafka unavailable, skipping TopCoins publish ${new Date().toLocaleString()}`);
         return;
     }
 
@@ -291,6 +292,7 @@ async function publishTopCoins() {
             { value: JSON.stringify({ topCoins }) }
         ]
     });
+    logger.debug(`Kafka crypto.topcoins.event.updated, TopCoins published ${new Date().toLocaleString()}`);
 }
 
 
