@@ -6,7 +6,7 @@ import { Kafka, logLevel, Producer } from "kafkajs";
 
 import { logger } from "./logger";
 import { getTopPerformers } from "./modules/topPerformers";
-import { cacheGet, cacheSet, shutdownCache } from "./cache";
+import { cacheAvailable, cacheGet, cacheSet, shutdownCache } from "./cache";
 
 // -------------------------------------------------
 // Env
@@ -77,7 +77,7 @@ producer.on(producer.events.DISCONNECT, () => {
 // Cache
 // -------------------------------------------------
 const STOCK_TOP_PERFORMERS_CACHE_KEY = "stock:top:performers";
-const CACHE_TTL_SECONDS = 120; // 2 minutes
+const CACHE_TTL_SECONDS = 300; // 5 minutes
 
 // -------------------------------------------------
 // Kafka Init
@@ -126,7 +126,6 @@ initKafkaSafely();
 // Publisher
 // -------------------------------------------------
 let refreshInProgress = false;
-let bffRequestInProgress = false;
 
 async function handleBffTopPerformersRequest(topic: string, message: any) {
   try {
@@ -148,6 +147,11 @@ async function handleBffTopPerformersRequest(topic: string, message: any) {
       axiosClient,
       limit: 10,
     });
+
+    if (!performers) {
+      logger.warn({ topic, message }, `Top performers empty skipping top performer publish to bff - ${new Date().toLocaleString()}`);
+      return;
+    }
 
     // Cache result
     await cacheSet(
@@ -189,7 +193,7 @@ async function publishTopPerformersEvent(performers: any) {
 
 async function scheduledTopPerformersRefresh(topic: string, message: any) {
   if (refreshInProgress) {
-    logger.info("Top performers refresh already running, skipping");
+    logger.debug("Top performers refresh already running, skipping");
     return;
   }
 
@@ -204,6 +208,17 @@ async function scheduledTopPerformersRefresh(topic: string, message: any) {
       axiosClient,
       limit: 10,
     });
+
+    if (!performers) {
+      logger.warn({ topic, message }, `Top performers empty skipping cache update - ${new Date().toLocaleString()}`);
+      return;
+    }
+
+    // Skip cache update if cache unavailable
+    if (!cacheAvailable()) {
+      logger.warn({ topic, message }, `Cache unavailable skipping Top performers cache update - ${new Date().toLocaleString()}`);
+      return;
+    }
 
     // Cache result
     await cacheSet(
@@ -221,8 +236,8 @@ async function scheduledTopPerformersRefresh(topic: string, message: any) {
   } catch (err) {
     kafkaAvailable = false;
     logger.warn(
-      { err: (err as Error).message },
-      "Kafka unavailable, skipping publish"
+      { err },
+      "Kafka publish failed during scheduled refresh"
     );
   } finally {
     refreshInProgress = false;
@@ -233,7 +248,7 @@ async function scheduledTopPerformersRefresh(topic: string, message: any) {
 // Scheduler (fallback)
 // -------------------------------------------------
 function startTopPerformersScheduler() {
-  const INTERVAL = 90_000;
+  const INTERVAL = 120_000;  // 2 minutes - fetch takes - 50 × 2.1s ≈ 105 seconds
 
   // Initial call on service start
   scheduledTopPerformersRefresh(

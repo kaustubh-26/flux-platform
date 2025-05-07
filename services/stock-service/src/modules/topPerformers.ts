@@ -19,11 +19,15 @@ export const POPULAR_STOCKS = [
 // -------------------------------------------------
 // API calls
 // -------------------------------------------------
+let rateLimited = false;
+
 async function getQuote(
   symbol: string,
   apiKey: string,
   axiosClient: AxiosInstance
 ) {
+  if (rateLimited) return null;
+
   try {
     const res = await axiosClient.get(`${BASE_URL}/quote`, {
       params: { symbol, token: apiKey },
@@ -33,30 +37,45 @@ async function getQuote(
     if (!parsed.success || parsed.data.c <= 0) return null;
 
     return { symbol, ...parsed.data };
-  } catch (err) {
+  } catch (err: any) {
     logger.warn({ symbol, err }, "Failed to fetch stock quote");
+    if (err.response?.status === 429) {
+      rateLimited = true;
+      logger.warn("Rate limit hit. Backing off for 60s");
+      await new Promise(res => setTimeout(res, 60_000));
+    }
     return null;
   }
 }
+/*
+ Rate limit calls with 2.1 s delay
+ 1 request ≈ every 2.1s
 
+~28 requests/min -> safe
+
+*/
 async function getMultipleQuotes(
   symbols: string[],
   apiKey: string,
   axiosClient: AxiosInstance,
-  delayMs = 1100
+  delayMs = 2100
 ) {
   const quotes = [];
+
+  rateLimited = false; // reset on new batch start
+
+  const start = Date.now();
+  logger.info({ symbolsCount: symbols.length, delayMs }, "Starting Finnhub batch");
 
   for (let i = 0; i < symbols.length; i++) {
     const quote = await getQuote(symbols[i], apiKey, axiosClient);
     if (quote) quotes.push(quote);
 
-    // Finnhub free tier rate limit (60/min)
-    if ((i + 1) % 50 === 0) {
-      await new Promise(res => setTimeout(res, delayMs));
-    }
+    // Finnhub free tier rate limit (30/min)
+    await new Promise(res => setTimeout(res, delayMs));
   }
 
+  logger.info({ durationMs: Date.now() - start, quotes: quotes.length }, "Finnhub batch complete");
   return quotes;
 }
 
@@ -84,6 +103,8 @@ function calculatePerformance(quotes: any[]): StockPerformance[] {
 // -------------------------------------------------
 // Public API
 // -------------------------------------------------
+let fetchInProgress = false;
+
 export async function getTopPerformers(params: {
   apiKey: string;
   axiosClient: AxiosInstance;
@@ -97,27 +118,37 @@ export async function getTopPerformers(params: {
     sortBy = "changePercent",
   } = params;
 
-  const quotes = await getMultipleQuotes(
-    POPULAR_STOCKS,
-    apiKey,
-    axiosClient
-  );
+  if (fetchInProgress) {
+    logger.info("Top performers fetch already running, skipping new fetch");
+    return null;
+  }
+  fetchInProgress = true;
 
-  const performance = calculatePerformance(quotes);
-  const sorted = [...performance].sort(
-    (a, b) => (b[sortBy] as number) - (a[sortBy] as number)
-  );
+  try {
+    const quotes = await getMultipleQuotes(
+      POPULAR_STOCKS,
+      apiKey,
+      axiosClient
+    );
 
-  return {
-    meta: {
-      source: 'Finnhub',
-      market: 'US',
-      exchanges: ['NYSE', 'NASDAQ'],
-      currency: 'USD',
-      timezone: 'UTC',
-    },
-    timestamp: new Date().toISOString(),
-    topGainers: sorted.slice(0, limit),
-    topLosers: sorted.slice(-limit).reverse(),
-  };
+    const performance = calculatePerformance(quotes);
+    const sorted = [...performance].sort(
+      (a, b) => (b[sortBy] as number) - (a[sortBy] as number)
+    );
+
+    return {
+      meta: {
+        source: 'Finnhub',
+        market: 'US',
+        exchanges: ['NYSE', 'NASDAQ'],
+        currency: 'USD',
+        timezone: 'UTC',
+      },
+      timestamp: new Date().toISOString(),
+      topGainers: sorted.slice(0, limit),
+      topLosers: sorted.slice(-limit).reverse(),
+    };
+  } finally {
+    fetchInProgress = false;
+  }
 }
