@@ -122,6 +122,31 @@ services:
     ports:
       - "3001:3001"
 
+  # -------------------------------------------------
+  # Stock Service
+  # -------------------------------------------------
+  stock-service:
+    build:
+      context: .
+      dockerfile: services/stock-service/Dockerfile
+    container_name: stock-service
+    env_file:
+      - services/stock-service/.env
+    depends_on:
+      - kafka
+      - valkey
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      KAFKA_BROKER: kafka:9092
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
+    secrets:
+      - valkey_pass
+    ports:
+      - "3002:3002"
+
 
 volumes:
   kafka-data:
