@@ -97,6 +97,31 @@ services:
     secrets:
       - valkey_pass
 
+  # -------------------------------------------------
+  # Crypto Service
+  # -------------------------------------------------
+  crypto-service:
+    build:
+      context: .
+      dockerfile: services/crypto-service/Dockerfile
+    container_name: crypto-service
+    env_file:
+      - services/crypto-service/.env
+    depends_on:
+      - kafka
+      - valkey
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      KAFKA_BROKER: kafka:9092
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
+    secrets:
+      - valkey_pass
+    ports:
+      - "3001:3001"
+
 
 volumes:
   kafka-data:
