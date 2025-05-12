@@ -1,6 +1,10 @@
 import { Kafka } from 'kafkajs';
 import { Server } from 'socket.io';
 import pino from 'pino';
+import { cacheSet } from '../cache';
+import { NEWS_GLOBAL_CACHE_KEY } from '../constants/news';
+
+const NEWS_CACHE_TTL = 12 * 60; // 12 minutes
 
 export async function initNewsConsumer(
   kafka: Kafka,
@@ -50,6 +54,13 @@ export async function initNewsConsumer(
 
       const room = `news.global`;
       const newsEvent = `newsUpdate`;
+
+      // Cache latest news
+      await cacheSet(
+        NEWS_GLOBAL_CACHE_KEY,
+        articles,
+        NEWS_CACHE_TTL
+      );
 
       io.to(room).emit(newsEvent, {
         status: 'success',

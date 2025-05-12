@@ -1,40 +1,57 @@
 import { Producer } from "kafkajs";
 import { Socket } from "socket.io";
+import { cacheGet, cacheSet } from "./cache";
+import pino from "pino";
+import { Location } from "./interfaces/location";
 
 const DEDUP_WINDOW_MS = 2000; // 2s window
 const CACHE_PREFIX = 'loc_dedup:';
 
-export async function sendLocationIfChanged(valkeyClient: any, producer: any, socket: any, payload: any, logger: any) {
+type LocationDedup = {
+    hash: string;
+    timestamp: number;
+};
+type Payload = {
+    event: string,
+    userId: string;
+    data: Location,
+    timestamp: string;
+};
+
+export async function sendLocationIfChanged(producer: Producer, socket: Socket, payload: Payload, logger: pino.Logger, isKafkaReady: () => boolean) {
+
+    if (!isKafkaReady()) {
+        logger.debug(
+            { socketId: socket.id },
+            "Kafka down, skipping location fan-out"
+        );
+        return;
+    }
+
     const cacheKey = `${CACHE_PREFIX}${payload.userId}`;
     const now = Date.now();
 
     const dataHash = JSON.stringify(payload.data);
 
     // Get last sent data from Valkey
-    const lastSent = await valkeyClient.get(cacheKey);
+    const lastSent = await cacheGet<LocationDedup>(cacheKey);
 
     if (lastSent) {
-        const last = JSON.parse(lastSent);
         // Skip if same data within window
-        if (last.hash === dataHash && (now - last.timestamp) < DEDUP_WINDOW_MS) {
+        if (lastSent.hash === dataHash && (now - lastSent.timestamp) < DEDUP_WINDOW_MS) {
             return; // duplicate, do not send
         }
     }
 
     // Cache with TTL (expires automatically)
     const ttlSeconds = Math.ceil(DEDUP_WINDOW_MS / 1000) + 60;
-    await valkeyClient.set(
+    await cacheSet(
         cacheKey,
-        JSON.stringify({ hash: dataHash, timestamp: now }),
-        'EX',
+        { hash: dataHash, timestamp: now },
         ttlSeconds
     );
 
-    await Promise.all([
-        sendLocationToWeather(producer, socket, payload, logger),
-        sendLocationToNews(producer, socket, payload, logger)
-    ]);
-
+   sendLocationToWeather(producer, socket, payload, logger);
 }
 
 async function sendLocationToWeather(
@@ -56,26 +73,4 @@ async function sendLocationToWeather(
     } catch (err) {
         logger.error({ err, socketId: socket.id }, 'Failed to process location update');
     }
-}
-
-async function sendLocationToNews(
-    producer: Producer,
-    socket: Socket,
-    payload: any,
-    logger: any
-) {
-    try {
-        // Send to Kafka
-        await producer.send({
-            topic: 'news.service.command.refresh',
-            messages: [{
-                key: socket.id,
-                value: JSON.stringify(payload)
-            }]
-        });
-        logger.info({ socketId: socket.id }, 'Location update sent to News Service');
-    } catch (err) {
-        logger.error({ err, socketId: socket.id }, 'Failed to process location update');
-    }
-
 }

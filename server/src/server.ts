@@ -8,16 +8,16 @@ import pino from 'pino';
 import { z } from 'zod';
 import { Location } from './interfaces/location';
 import { sendLocationIfChanged } from './sendLocation';
-import IORedis, { RedisOptions } from 'ioredis';
 import { initWeatherConsumer } from './modules/weatherConsumer';
 import { initCryptoTopMoversConsumer } from './modules/cryptoTopMoversConsumer';
-import { cacheGet } from './cache';
+import { cacheGet, shutdownCache } from './cache';
 import { initCryptoTickerConsumer } from './modules/cryptoTickerConsumer';
 import { initCryptoTopCoinsConsumer } from './modules/cryptoTopCoinsConsumer';
 import { initNewsConsumer } from './modules/newsConsumer';
 import { CRYPTO_MOVERS_CACHE_KEY, CRYPTO_TOPCOINS_CACHE_KEY, CRYPTO_TICKER_CACHE_KEY } from './constants/crypto';
 import { initStockTopPerformersConsumer } from './modules/stockTopPerformersConsumer';
 import { STOCK_TOP_PERFORMERS_CACHE_KEY } from './constants/stocks';
+import { NEWS_GLOBAL_CACHE_KEY } from './constants/news';
 
 // -------------------------------------------------
 // Load & validate environment variables
@@ -133,6 +133,7 @@ async function initProducer() {
                 await sendCryptoTopCoinsRefresh(producer, logger);
                 await sendCryptoMoversRefresh(producer, logger);
                 await sendStockTopPerformersRefresh(producer, logger);
+                await sendTopNewsRefresh(producer, logger, "initial_refresh");
                 didInitialRefresh = true;
             }
             break;
@@ -207,36 +208,35 @@ async function sendStockTopPerformersRefresh(producer: Producer, logger: pino.Lo
 
     logger.info('Sent stock movers refresh command');
 }
-
-// -------------------------------------------------
-// Valkey connection - In-memory cache
-// -------------------------------------------------
-const redisOpts: RedisOptions = {
-    host: process.env.VALKEY_HOST || '127.0.0.1',
-    port: Number(process.env.VALKEY_PORT) || 6379,
-    password: process.env.VALKEY_PASSWORD || undefined,
-    retryStrategy: (times) => {
-        if (times > 3) return null; // stop retrying
-        return 500;
-    },
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: false,
-    lazyConnect: true,
-};
-
-let redisDownLogged = false;
-
-const redis = new IORedis(redisOpts);
-redis.on('connect', () => {
-    redisDownLogged = false;
-    logger.info('✓ Valkey connected');
-});
-redis.on('error', (err) => {
-    if (!redisDownLogged) {
-        logger.warn({ err }, 'Valkey unavailable – running without cache');
-        redisDownLogged = true;
+let topNewsRefreshInProgress = false;
+async function sendTopNewsRefresh(producer: Producer, logger: pino.Logger, reason: string) {
+    if (topNewsRefreshInProgress) {
+        logger.debug({ reason }, "Top news refresh already in progress, skipping");
+        return;
     }
-});
+
+    topNewsRefreshInProgress = true;
+    try {
+        const payload = {
+            requestedBy: 'bff',
+            reason,
+            timestamp: new Date().toISOString(),
+        };
+
+        // Send to Kafka
+        await producer.send({
+            topic: 'news.service.command.refresh',
+            messages: [{
+                key: 'topglobalnews',
+                value: JSON.stringify(payload)
+            }]
+        });
+        logger.info('Sent top news refresh command');
+    } finally {
+        topNewsRefreshInProgress = false;
+    }
+}
+
 
 // -------------------------------------------------
 // HTTP Server
@@ -296,6 +296,18 @@ io.on('connection', (socket: Socket) => {
         socket.join(stockRoom);
         logger.info({ socketId: socket.id, room: stockRoom }, 'User joined stock room');
 
+        // Immediately hydrate the client with the latest cached news on room join.
+        // This prevents race conditions where news updates are emitted
+        // before the client joins the room and ensures fast initial render.
+        const cached = await cacheGet(NEWS_GLOBAL_CACHE_KEY);
+        if (cached) {
+            socket.emit("newsUpdate", {
+                status: "success",
+                scope: "global",
+                data: cached
+            });
+        }
+
         logger.debug({
             key: socket.id,
             value: JSON.stringify({
@@ -316,7 +328,7 @@ io.on('connection', (socket: Socket) => {
             logger.warn('Kafka unavailable Real-time updates temporarily unavailable');
             return;
         }
-        await sendLocationIfChanged(redis, producer, socket, payload, logger);
+        await sendLocationIfChanged(producer, socket, payload, logger, () => kafkaReady);
     });
 
     // Crypto events
@@ -330,6 +342,7 @@ io.on('connection', (socket: Socket) => {
                     status: 'loading',
                     message: 'Data will refresh when backend reconnects'
                 });
+                await sendCryptoMoversRefresh(producer, logger);
                 return;
             }
 
@@ -404,6 +417,33 @@ io.on('connection', (socket: Socket) => {
         }
     });
 
+    // News events
+    socket.on('topNewsRequest', async () => {
+        try {
+            const cached = await cacheGet<any[]>(NEWS_GLOBAL_CACHE_KEY);
+
+            if (!cached) {
+                await sendTopNewsRefresh(producer, logger, 'refresh_cache');
+                socket.emit('newsUpdate', {
+                    status: 'loading',
+                    message: 'Fetching latest news'
+                });
+                return;
+            }
+
+            socket.emit('newsUpdate', {
+                status: 'success',
+                scope: 'global',
+                data: cached
+            });
+        } catch (err) {
+            socket.emit('newsUpdate', {
+                status: 'error',
+                message: 'Failed to fetch news',
+                error: (err as Error).message
+            });
+        }
+    });
 
     socket.on('disconnect', (reason) => {
         logger.info({ socketId: socket.id, reason }, 'Client disconnected');
@@ -432,6 +472,9 @@ async function shutdown(signal: string) {
         await server.close(() => {
             logger.info('HTTP server closed');
         });
+
+        shutdownCache();
+        logger.info('Cache connection closed');
 
         if (cryptoTickerConsumer) {
             await cryptoTickerConsumer.stop();  // stop rejoin
