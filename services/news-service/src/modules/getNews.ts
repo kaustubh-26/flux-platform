@@ -7,6 +7,7 @@ import { NewsCard, NewsDataResponse } from "../interfaces/news";
 import { newsLimiter } from "./newsLimiter";
 import { logger } from "../logger";
 import { cacheGet, cacheSet } from "../cache";
+import { NEWS_CACHE_KEY } from "../constants/news";
 
 newsLimiter.on("queued", () => {
   logger.warn("News request queued due to rate limit");
@@ -16,9 +17,7 @@ newsLimiter.on("executing", () => {
   logger.info("News request executing from queue");
 });
 
-const NEWS_CACHE_TTL = 10 * 60; // 5 minutes (seconds)
-const NEWS_CACHE_PREFIX = "news:latest";
-
+const NEWS_CACHE_TTL = 12 * 60; // 12 minutes
 
 const BASE_URL = "https://newsdata.io/api/1/latest";
 
@@ -29,7 +28,7 @@ let consecutiveFailures = 0;
 let breakerOpenUntil = 0;
 
 const FAILURE_THRESHOLD = 3;    // failures before opening breaker
-const COOLDOWN_MS = 15 * 60_000; // 5 minutes
+const COOLDOWN_MS = 15 * 60_000; // 15 minutes
 
 const inFlight = new Map<string, Promise<NewsDataResponse>>();
 
@@ -192,5 +191,5 @@ function getNewsCacheKey(
   categories: string[],
   language: string
 ) {
-  return `${NEWS_CACHE_PREFIX}:${scope}:${language}:${categories.sort().join(",")}`;
+  return `${NEWS_CACHE_KEY}:${scope}:${language}:${categories.sort().join(",")}`;
 }
