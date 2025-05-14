@@ -20,6 +20,9 @@ export function useTopNews() {
     // listen for updates
     socket.on('newsUpdate', handler);
 
+    // Get top news
+    socket.emit('topNewsRequest');
+
     return () => {
       socket.off('newsUpdate', handler);
     };
