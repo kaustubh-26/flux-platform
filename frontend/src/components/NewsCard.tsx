@@ -23,20 +23,47 @@ function NewsCard() {
 
       {/* Content */}
       {!news ? (
-        <div className="flex-1 flex items-center justify-center text-slate-400">
-          Loading news…
+        <div
+          className="flex-1 flex flex-col gap-2 max-h-[50vh] overflow-y-auto
+          sm:flex-row sm:overflow-x-auto sm:overflow-y-hidden sm:pb-2"
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="w-full sm:min-w-[290px] sm:max-w-[290px] bg-slate-900 border border-slate-700 rounded-md p-3 flex flex-col"
+            >
+              {/* Title */}
+              <div className="space-y-2 mb-4">
+                <div className="h-4 w-full bg-slate-700/60 rounded animate-pulse" />
+                <div className="h-4 w-3/4 bg-slate-700/50 rounded animate-pulse" />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2 mb-4">
+                <div className="h-3 w-full bg-slate-700/40 rounded animate-pulse" />
+                <div className="h-3 w-5/6 bg-slate-700/30 rounded animate-pulse" />
+              </div>
+
+              {/* Footer */}
+              <div className="mt-auto pt-2 flex justify-between">
+                <div className="h-3 w-20 bg-slate-700/40 rounded animate-pulse" />
+                <div className="h-3 w-12 bg-slate-700/30 rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <div
-          className="
-            flex-1
-            h-full
-            grid gap-1
-            grid-cols-1
-            sm:grid-cols-2
-            lg:grid-cols-5
-            auto-rows-fr
-          "
+          className="flex-1 thin-scrollbar
+              /* Mobile */
+              flex flex-col gap-2
+              max-h-[60vh] overflow-y-auto
+              /* Desktop */
+              sm:max-h-none
+              sm:flex-row
+              sm:overflow-x-auto sm:overflow-y-hidden
+              sm:pb-2
+              sm:scroll-smooth"
         >
           {news
             .filter(
@@ -44,7 +71,7 @@ function NewsCard() {
                 typeof a.description === 'string' &&
                 a.description.trim().length > 0
             )
-            .slice(0, 5)
+            // .slice(0, 5)
             .map((article) => (
               <NewsItem key={article.id} article={article} />
             ))}
@@ -85,25 +112,20 @@ function NewsItem({ article }: { article: any }) {
       href={article.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="
-        h-full
-        bg-slate-900
-        border border-slate-700
-        rounded-md
-        p-3
-        flex flex-col
-        hover:bg-slate-700
-        transition
-      "
+      className="w-full bg-slate-900 border border-slate-700 rounded-md p-3 hover:bg-slate-700
+      sm:min-w-[290px]
+      sm:max-w-[290px]
+      flex flex-col
+      transition"
     >
       {/* Title */}
-      <h2 className="text-sm font-semibold line-clamp-3 pb-2">
+      <h2 className="text-sm font-semibold line-clamp-2 pb-5">
         {article.title}
       </h2>
 
       {/* Description */}
       {article.description && (
-        <p className="text-xs text-slate-300 line-clamp-5">
+        <p className="text-xs text-slate-300 line-clamp-2">
           {article.description}
         </p>
       )}

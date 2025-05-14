@@ -19,7 +19,7 @@ export default function LiveTickerCard() {
       </div>
 
       {/* Table header */}
-      <div className="grid grid-cols-[40px_1fr_120px_90px_110px_90px] text-[11px] text-slate-400 px-5 pb-1">
+      <div className="hidden md:grid grid-cols-[40px_1fr_120px_90px_110px_90px] text-[11px] text-slate-400 px-5 pb-1">
         <span>#</span>
         <span>Name</span>
         <span className="text-right">Price</span>
@@ -54,7 +54,7 @@ export default function LiveTickerCard() {
   );
 }
 
-
+// ROW
 function LiveTickerRow({
   coin,
   ticker,
@@ -72,75 +72,135 @@ function LiveTickerRow({
 
   const { direction, flash } = usePriceDelta(price ?? undefined);
 
+  const priceFlashClass =
+    flash === 'up'
+      ? 'bg-emerald-500/20 text-emerald-300'
+      : flash === 'down'
+        ? 'bg-rose-500/20 text-rose-300'
+        : 'text-white';
+
   return (
     <div
-      className={`grid grid-cols-[40px_1fr_120px_90px_110px_90px]
-        items-center px-2 py-2 rounded-md text-sm transition`}
+      className="
+        grid grid-cols-1 md:grid-cols-[40px_1fr_120px_90px_110px_90px]
+        gap-y-1
+        items-center px-2 py-2 rounded-md
+        bg-black/20 hover:bg-black/30 transition text-sm
+      "
     >
-      {/* Rank */}
-      <span className="text-xs text-slate-400">#{index + 1}</span>
+      {/* MOBILE VIEW */}
+      <div className="flex justify-between items-center md:hidden">
+        <div className="flex flex-col min-w-0">
+          <span className="text-white font-medium truncate">
+            {coin.name}
+          </span>
+          <span className="text-xs text-slate-400">
+            {coin.symbol}
+          </span>
+        </div>
 
-      {/* Name */}
-      <div className="flex flex-col min-w-0">
-        <span className="text-white font-medium truncate">{coin.name}</span>
-        <span className="text-xs text-slate-400">{coin.symbol}</span>
+        <div className="text-right shrink-0">
+          {/* Price with ▲▼ + flash */}
+          <div
+            className={`flex items-center justify-end gap-1
+              font-mono px-2 py-0.5 rounded transition-colors
+              ${priceFlashClass}
+            `}
+          >
+            {direction === 'up' && (
+              <span className="text-emerald-400 text-xs">▲</span>
+            )}
+            {direction === 'down' && (
+              <span className="text-rose-400 text-xs">▼</span>
+            )}
+            {price != null ? `$${price.toFixed(4)}` : '—'}
+          </div>
+
+          {/* 24h % */}
+          <div
+            className={`text-xs font-mono ${
+              change == null
+                ? 'text-slate-400'
+                : change >= 0
+                  ? 'text-emerald-400'
+                  : 'text-rose-400'
+            }`}
+          >
+            {change != null
+              ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`
+              : '—'}
+          </div>
+        </div>
       </div>
 
+      {/* DESKTOP VIEW */}
+      <div className="hidden md:contents">
+        {/* Rank */}
+        <span className="text-xs text-slate-400">
+          #{index + 1}
+        </span>
 
-
-      {/* Price + ▲▼ */}
-      <span className={`text-right font-mono flex items-center justify-end gap-2
-          rounded px-2 py-1 transition-colors duration-300
-          ${flash === 'up'
-          ? 'bg-emerald-500/20 text-emerald-300'
-          : flash === 'down'
-            ? 'bg-rose-500/20 text-rose-300'
-            : 'text-white'
-        }
-        `}
-      >
-        {direction === 'up' && (
-          <span className="text-emerald-400 text-xs">▲</span>
-        )}
-        {direction === 'down' && (
-          <span className="text-rose-400 text-xs">▼</span>
-        )}
-
-        {price ? `$${price.toFixed(4)}` : '—'}
-      </span>
-
-
-
-      {/* 24h % */}
-      <span
-        className={`text-right font-mono ${change == null
-          ? 'text-slate-400'
-          : change >= 0
-            ? 'text-emerald-400'
-            : 'text-rose-400'
-          }`}
-      >
-        {change != null ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}%` : '—'}
-      </span>
-
-      {/* Volume */}
-      <span className="text-right font-mono text-slate-300">
-        {volume ? formatVolume(volume) : '—'}
-      </span>
-
-      {/* Low / High */}
-      <div className="text-right font-mono text-xs leading-tight">
-        <div className="text-rose-400">
-          {low != null ? `$${formatPrice(low)}` : '—'}
+        {/* Name */}
+        <div className="flex flex-col min-w-0">
+          <span className="text-white font-medium truncate">
+            {coin.name}
+          </span>
+          <span className="text-xs text-slate-400">
+            {coin.symbol}
+          </span>
         </div>
-        <div className="text-emerald-400">
-          {high != null ? `$${formatPrice(high)}` : '—'}
+
+        {/* Price + ▲▼ */}
+        <span
+          className={`text-right font-mono flex items-center justify-end gap-2
+            rounded px-2 py-1 transition-colors duration-300
+            ${priceFlashClass}
+          `}
+        >
+          {direction === 'up' && (
+            <span className="text-emerald-400 text-xs">▲</span>
+          )}
+          {direction === 'down' && (
+            <span className="text-rose-400 text-xs">▼</span>
+          )}
+          {price != null ? `$${price.toFixed(4)}` : '—'}
+        </span>
+
+        {/* 24h % */}
+        <span
+          className={`text-right font-mono ${
+            change == null
+              ? 'text-slate-400'
+              : change >= 0
+                ? 'text-emerald-400'
+                : 'text-rose-400'
+          }`}
+        >
+          {change != null
+            ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`
+            : '—'}
+        </span>
+
+        {/* Volume */}
+        <span className="text-right font-mono text-slate-300">
+          {volume != null ? formatVolume(volume) : '—'}
+        </span>
+
+        {/* Low / High */}
+        <div className="text-right font-mono text-xs leading-tight">
+          <div className="text-rose-400">
+            {low != null ? `$${formatPrice(low)}` : '—'}
+          </div>
+          <div className="text-emerald-400">
+            {high != null ? `$${formatPrice(high)}` : '—'}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+// Helper
 function formatPrice(value: number) {
   if (value < 1) return value.toFixed(4);
   return value.toFixed(2);

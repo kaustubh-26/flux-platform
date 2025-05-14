@@ -76,16 +76,16 @@ const DashboardPage = () => {
 
 
     return (
-        <div className="min-h-screen min-w-screen bg-neutral-800 text-slate-100">
+        <div className="min-h-screen w-full bg-neutral-800 text-slate-100">
             <Header />
-            <div className="max-w-screen mx-auto">
-                <div className='w-screen h-[15vh] mb-2'>
+            <div className="w-full mx-auto">
+                <div className='w-full mb-2'>
                     <WeatherCard />
                 </div>
-                <div className='w-screen h-[25vh] mb-2'>
+                <div className='w-full md:h-[25vh] mb-2'>
                     <NewsCard />
                 </div>
-                <div className='h-[50vh] grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 gap-2'>
+                <div className='grid grid-cols-1 lg:grid-cols-2 gap-2 lg:h-[50vh]'>
                     <StockCard />
                     <CryptoCard />
                 </div>

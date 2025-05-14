@@ -10,10 +10,8 @@ export function useTopNews() {
     if (!socket) return;
 
     const handler = (payload: TopNewsPayload) => {
-        console.log('payload', payload)
       if (payload.status === 'success' && Array.isArray(payload.data)) {
         setNews(payload.data);
-        console.log(news)
       }
     };
 

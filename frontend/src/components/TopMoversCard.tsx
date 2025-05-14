@@ -17,7 +17,7 @@ export default function CryptoMoversCard() {
   return (
     <div className="flex flex-col h-full">
       {/* Columns */}
-      <div className="flex flex-1 gap-3 overflow-hidden">
+      <div className="flex flex-col md:flex-row gap-3 md:overflow-hidden">
         <MoversColumn
           title="Top Gainers"
           items={movers.topGainers.data}
@@ -32,11 +32,7 @@ export default function CryptoMoversCard() {
     </div>
   );
 }
-
-/* ============================================================
-   COLUMN
-   ============================================================ */
-
+// COLUMN
 function MoversColumn({
   title,
   items,
@@ -49,7 +45,7 @@ function MoversColumn({
   const accent = positive ? 'text-emerald-400' : 'text-rose-400';
 
   return (
-    <div className="flex-1 rounded-md bg-white/5 border border-white/10 flex flex-col overflow-hidden">
+    <div className="flex-1 rounded-md bg-white/5 border border-white/10 flex flex-col h-[45dvh] sm:h-[70dvh] md:h-auto overflow-hidden">
       {/* Column title */}
       <div className="px-3 pt-2 pb-1">
         <h4 className={`text-sm font-semibold ${accent}`}>
@@ -58,7 +54,13 @@ function MoversColumn({
       </div>
 
       {/* Table header */}
-      <div className="grid grid-cols-[40px_1fr_90px_70px_90px] text-[11px] text-slate-400 px-7 pb-1">
+      <div
+        className="
+            hidden md:grid grid-cols-1 md:grid-cols-[40px_1fr_90px_70px_90px]
+            gap-y-1
+            items-center text-[11px] text-slate-400 px-7 pb-1 rounded-md
+          "
+      >
         <span>#</span>
         <span>Name</span>
         <span className="text-right">Price</span>
@@ -76,52 +78,84 @@ function MoversColumn({
   );
 }
 
-/* ============================================================
-   ROW
-   ============================================================ */
-
+// ROW
 function MoverRow({ coin }: { coin: CryptoAsset }) {
   const price = Number(coin.currentPrice) || 0;
   const change1h = Number(coin.priceChangePercentage1h ?? 0);
   const volume = Number(coin.totalVolume) || 0;
 
   return (
-    <div className="grid grid-cols-[40px_1fr_90px_70px_90px] items-center px-2 py-2 rounded-md bg-black/20 hover:bg-black/30 transition text-sm">
-      <span className="text-xs text-slate-400">
-        #{coin.marketCapRank}
-      </span>
+    <div
+      className="
+        grid grid-cols-1 md:grid-cols-[40px_1fr_90px_70px_90px]
+        gap-y-1
+        items-center px-2 py-2 rounded-md
+        bg-black/20 hover:bg-black/30 transition text-sm
+      "
+    >
+      {/* MOBILE VIEW */}
+      <div className="flex justify-between md:hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <img src={coin.image} className="w-5 h-5 rounded-full" />
 
-      <div className="flex items-center gap-2 min-w-0">
-        <img src={coin.image} className="w-5 h-5 rounded-full" />
-        <span className="text-white font-medium truncate">
-          {coin.symbol.toUpperCase()}
-        </span>
+          <div className="flex flex-col min-w-0">
+            <span className="text-white font-medium truncate">
+              {coin.name}
+            </span>
+            <span className="text-xs text-slate-400">
+              {coin.symbol.toUpperCase()}
+            </span>
+          </div>
+        </div>
+
+        <div className="text-right shrink-0">
+          <div className="font-mono text-white">
+            ${price < 1 ? price.toFixed(4) : price.toFixed(2)}
+          </div>
+          <div
+            className={`text-xs font-mono ${change1h >= 0 ? 'text-emerald-400' : 'text-rose-400'
+              }`}
+          >
+            {change1h >= 0 ? '+' : ''}
+            {change1h.toFixed(2)}%
+          </div>
+        </div>
       </div>
 
-      <span className="text-right font-mono text-white">
-        ${price < 1 ? price.toFixed(4) : price.toFixed(2)}
-      </span>
+      {/* DESKTOP VIEW */}
+      <div className="hidden md:contents">
+        <span className="text-xs text-slate-400">
+          #{coin.marketCapRank}
+        </span>
 
-      <span
-        className={`text-right font-mono ${
-          change1h >= 0 ? 'text-emerald-400' : 'text-rose-400'
-        }`}
-      >
-        {change1h >= 0 ? '+' : ''}
-        {change1h.toFixed(2)}%
-      </span>
+        <div className="flex items-center gap-2 min-w-0">
+          <img src={coin.image} className="w-5 h-5 rounded-full" />
+          <span className="text-white font-medium truncate">
+            {coin.symbol.toUpperCase()}
+          </span>
+        </div>
 
-      <span className="text-right font-mono text-slate-300">
-        {formatVolume(volume)}
-      </span>
+        <span className="text-right font-mono text-white">
+          ${price < 1 ? price.toFixed(4) : price.toFixed(2)}
+        </span>
+
+        <span
+          className={`text-right font-mono ${change1h >= 0 ? 'text-emerald-400' : 'text-rose-400'
+            }`}
+        >
+          {change1h >= 0 ? '+' : ''}
+          {change1h.toFixed(2)}%
+        </span>
+
+        <span className="text-right font-mono text-slate-300">
+          {formatVolume(volume)}
+        </span>
+      </div>
     </div>
   );
 }
 
-/* ============================================================
-   HELPERS
-   ============================================================ */
-
+// HELPERS
 function formatVolume(value: number) {
   if (value >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
   if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
