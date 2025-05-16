@@ -4,9 +4,22 @@ const config: Config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
 
-  // Test file patterns
-  testMatch: ['**/?(*.)+(spec|test).ts'],
+  transform: {
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: '<rootDir>/tsconfig.test.json',
+      },
+    ],
+  },
 
+  rootDir: '.',
+
+  // Test file patterns
+  testMatch: [
+    '<rootDir>/tests/**/*.test.ts',
+    '<rootDir>/tests/**/*.int.test.ts'
+  ],
   // Faster & predictable paths
   clearMocks: true,
   resetMocks: true,
@@ -18,6 +31,10 @@ const config: Config = {
     '!src/**/*.d.ts',
     '!src/**/index.ts',
   ],
+
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1'
+  },
 
   coverageDirectory: 'coverage',
 
