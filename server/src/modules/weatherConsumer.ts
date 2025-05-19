@@ -2,11 +2,19 @@ import { Kafka } from 'kafkajs';
 import { Server } from 'socket.io';
 import pino from 'pino';
 
-export async function initWeatherConsumer(kafka: Kafka, io: Server, logger: pino.Logger) {
+export async function initWeatherConsumer(
+  kafka: Kafka,
+  io: Server,
+  logger: pino.Logger,
+  opts?: { fromBeginning?: boolean }
+) {
   const consumer = kafka.consumer({ groupId: 'realtime-dashboard-weather' });
 
   await consumer.connect();
-  await consumer.subscribe({ topic: 'weather.service.event.updated', fromBeginning: false });
+  await consumer.subscribe({
+    topic: 'weather.service.event.updated',
+    fromBeginning: opts?.fromBeginning ?? false,
+  });
   
   await consumer.run({
     eachMessage: async ({ topic, message }) => {
@@ -26,7 +34,7 @@ export async function initWeatherConsumer(kafka: Kafka, io: Server, logger: pino
       let weatherData: any = {
         data: payload.data
       }
-      if(payload.status == "success") {
+      if (payload.status == "success") {
         weatherData['status'] = 'success';
       }
       io.to(room).emit(eventName, weatherData);

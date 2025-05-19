@@ -15,7 +15,8 @@ let lastLogTime = 0;
 export async function initCryptoTickerConsumer(
     kafka: Kafka,
     io: Server,
-    logger: pino.Logger
+    logger: pino.Logger,
+    opts?: { fromBeginning?: boolean }
 ) {
     const consumer = kafka.consumer({
         groupId: 'realtime-dashboard-crypto-ticker',
@@ -28,7 +29,7 @@ export async function initCryptoTickerConsumer(
      */
     await consumer.subscribe({
         topic: 'crypto.ticker.event.updated',
-        fromBeginning: false,
+        fromBeginning: opts?.fromBeginning ?? false,
     });
 
     await consumer.run({
@@ -38,7 +39,7 @@ export async function initCryptoTickerConsumer(
             let payload;
             try {
                 payload = JSON.parse(message.value.toString());
-                
+
                 const now = Date.now();
                 if (now - lastLogTime >= LOG_INTERVAL_MS) {
                     logger.debug(

@@ -9,7 +9,8 @@ const NEWS_CACHE_TTL = 12 * 60; // 12 minutes
 export async function initNewsConsumer(
   kafka: Kafka,
   io: Server,
-  logger: pino.Logger
+  logger: pino.Logger,
+  opts?: { fromBeginning?: boolean }
 ) {
   const consumer = kafka.consumer({
     groupId: 'realtime-dashboard-news'
@@ -19,7 +20,7 @@ export async function initNewsConsumer(
 
   await consumer.subscribe({
     topic: 'news.service.event.updated',
-    fromBeginning: true
+    fromBeginning: opts?.fromBeginning ?? false,
   });
 
   await consumer.run({

@@ -13,7 +13,8 @@ const TOP_MOVERS_TTL = 300; // seconds (5 minutes TTL)
 export async function initCryptoTopMoversConsumer(
     kafka: Kafka,
     io: Server,
-    logger: pino.Logger
+    logger: pino.Logger,
+    opts?: { fromBeginning?: boolean }
 ) {
     const consumer = kafka.consumer({
         groupId: 'realtime-dashboard-crypto-topmovers',
@@ -27,7 +28,7 @@ export async function initCryptoTopMoversConsumer(
 
     await consumer.subscribe({
         topic: 'crypto.movers.event.updated',
-        fromBeginning: false,
+        fromBeginning: opts?.fromBeginning ?? false,
     });
 
     await consumer.run({

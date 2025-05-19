@@ -9,7 +9,8 @@ const TOP_COINS_TTL = 300; // seconds (5 minutes TTL)
 export async function initCryptoTopCoinsConsumer(
     kafka: Kafka,
     io: Server,
-    logger: pino.Logger
+    logger: pino.Logger,
+    opts?: { fromBeginning?: boolean }
 ) {
     const consumer = kafka.consumer({
         groupId: 'realtime-dashboard-crypto-topcoins',
@@ -19,7 +20,7 @@ export async function initCryptoTopCoinsConsumer(
 
     await consumer.subscribe({
         topic: 'crypto.topcoins.event.updated',
-        fromBeginning: false,
+        fromBeginning: opts?.fromBeginning ?? false,
     });
 
     await consumer.run({

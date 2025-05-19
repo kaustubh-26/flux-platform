@@ -51,7 +51,7 @@ describe('initNewsConsumer (unit)', () => {
     expect(consumer.connect).toHaveBeenCalled();
     expect(consumer.subscribe).toHaveBeenCalledWith({
       topic: 'news.service.event.updated',
-      fromBeginning: true,
+      fromBeginning: false,
     });
     expect(consumer.run).toHaveBeenCalled();
   });

@@ -13,7 +13,8 @@ const TOP_PERFORMERS_TTL = 15 * 60; // seconds (5 minutes)
 export async function initStockTopPerformersConsumer(
     kafka: Kafka,
     io: Server,
-    logger: pino.Logger
+    logger: pino.Logger,
+    opts?: { fromBeginning?: boolean }
 ) {
     const consumer = kafka.consumer({
         groupId: 'realtime-dashboard-stock-topperformers',
@@ -26,7 +27,7 @@ export async function initStockTopPerformersConsumer(
      */
     await consumer.subscribe({
         topic: 'stock.service.event.updated',
-        fromBeginning: false,
+        fromBeginning: opts?.fromBeginning ?? false,
     });
 
     await consumer.run({
@@ -40,7 +41,7 @@ export async function initStockTopPerformersConsumer(
                     `Received stock top performers from Kafka - ${new Date().toLocaleString()}`
                 );
             } catch (err) {
-                logger.error({ err },'Failed to parse Stock performers payload');
+                logger.error({ err }, 'Failed to parse Stock performers payload');
                 return;
             }
 
