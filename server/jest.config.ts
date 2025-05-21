@@ -3,6 +3,8 @@ import type { Config } from 'jest';
 const config: Config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  forceExit: true,
+  detectOpenHandles: false,
 
   transform: {
     '^.+\\.ts$': [
@@ -28,6 +30,7 @@ const config: Config = {
   // Coverage (optional but recommended)
   collectCoverageFrom: [
     'src/**/*.ts',
+    '!src/server.ts',   
     '!src/**/*.d.ts',
     '!src/**/index.ts',
   ],
