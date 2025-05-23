@@ -10,7 +10,10 @@
     "test": "jest",
     "test:server": "npm run test --workspace server",
     "test:frontend": "npm run test --workspace frontend",
-    "test:weather": "npm run test --workspace weather-service"
+    "test:weather": "npm run test --workspace weather-service",
+    "test:stock": "npm run test --workspace stock-service",
+    "test:news": "npm run test --workspace news-service",
+    "test:crypto": "npm run test --workspace crypto-service"
   },
   "devDependencies": {
     "jest": "^29.7.0",
