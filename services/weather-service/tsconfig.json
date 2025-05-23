@@ -9,7 +9,12 @@
     "skipLibCheck": true,
 
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": ["src"]
 }
