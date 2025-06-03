@@ -7,6 +7,19 @@ import { Kafka, logLevel, Producer } from "kafkajs";
 import { logger } from "./logger";
 import { getTopPerformers } from "./modules/topPerformers";
 import { cacheAvailable, cacheGet, cacheSet, shutdownCache } from "./cache";
+import { initStockConsumer, StockConsumer } from "./modules/stockConsumer";
+import fs from "fs";
+
+function resolveSecret(envVar: string): string {
+  const value = process.env[envVar];
+  if (!value) {
+    throw new Error(`${envVar} is not set`);
+  }
+  if (value.startsWith("/run/secrets/")) {
+    return fs.readFileSync(value, "utf8").trim();
+  }
+  return value;
+}
 
 // -------------------------------------------------
 // Env
@@ -14,16 +27,18 @@ import { cacheAvailable, cacheGet, cacheSet, shutdownCache } from "./cache";
 dotenv.config();
 
 const envSchema = z.object({
-  FINNHUB_API_KEY: z.string().min(1),
   KAFKA_BROKER_ADDRESS: z.string().min(1),
   NODE_ENV: z.enum(["development", "production"]).default("production"),
 });
 
 const env = envSchema.parse(process.env);
 
-// -------------------------------------------------
+// Resolve secret once
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY && !process.env.FINNHUB_API_KEY.startsWith("/run/secrets/")
+    ? process.env.FINNHUB_API_KEY : resolveSecret("FINNHUB_API_KEY");
+
+
 // Axios client
-// -------------------------------------------------
 const httpsAgent = new https.Agent({
   keepAlive: true,
   maxSockets: 10,
@@ -54,9 +69,7 @@ const producer: Producer = kafka.producer({
   },
 });
 
-const consumer = kafka.consumer({
-  groupId: "stock-topperformers-group",
-});
+let consumer: StockConsumer;
 
 producer.on(producer.events.CONNECT, () => {
   kafkaAvailable = true;
@@ -73,15 +86,11 @@ producer.on(producer.events.DISCONNECT, () => {
   logger.warn("Kafka producer disconnected");
 });
 
-// -------------------------------------------------
 // Cache
-// -------------------------------------------------
 const STOCK_TOP_PERFORMERS_CACHE_KEY = "stock:top:performers";
 const CACHE_TTL_SECONDS = 300; // 5 minutes
 
-// -------------------------------------------------
 // Kafka Init
-// -------------------------------------------------
 let kafkaStarting = false;
 let kafkaDownLogged = false;
 
@@ -92,19 +101,12 @@ async function initKafkaSafely() {
   for (; ;) {
     try {
       await producer.connect();
-      await consumer.connect();
-
-      await consumer.subscribe({
-        topic: "stock.service.command.topperformers.refresh",
-        fromBeginning: false,
+      consumer = initStockConsumer({
+        broker: env.KAFKA_BROKER_ADDRESS,
+        handler: handleBffTopPerformersRequest,
       });
 
-      await consumer.run({
-        partitionsConsumedConcurrently: 1,
-        eachMessage: async ({ topic, message }) => {
-          await handleBffTopPerformersRequest(topic, message);
-        },
-      });
+      await consumer.start();
 
       startTopPerformersScheduler();
       return;
@@ -122,9 +124,7 @@ async function initKafkaSafely() {
 
 initKafkaSafely();
 
-// -------------------------------------------------
 // Publisher
-// -------------------------------------------------
 let refreshInProgress = false;
 
 async function handleBffTopPerformersRequest(topic: string, message: any) {
@@ -143,7 +143,7 @@ async function handleBffTopPerformersRequest(topic: string, message: any) {
 
     // Fetch fresh data
     const performers = await getTopPerformers({
-      apiKey: env.FINNHUB_API_KEY,
+      apiKey: FINNHUB_API_KEY,
       axiosClient,
       limit: 10,
     });
@@ -204,7 +204,7 @@ async function scheduledTopPerformersRefresh(topic: string, message: any) {
 
     // Fetch fresh data
     const performers = await getTopPerformers({
-      apiKey: env.FINNHUB_API_KEY,
+      apiKey: FINNHUB_API_KEY,
       axiosClient,
       limit: 10,
     });
@@ -244,9 +244,7 @@ async function scheduledTopPerformersRefresh(topic: string, message: any) {
   }
 }
 
-// -------------------------------------------------
-// Scheduler (fallback)
-// -------------------------------------------------
+// Scheduler
 function startTopPerformersScheduler() {
   const INTERVAL = 120_000;  // 2 minutes - fetch takes - 50 × 2.1s ≈ 105 seconds
 
@@ -284,7 +282,7 @@ async function shutdown(signal: string) {
     shutdownCache();
 
     await producer.disconnect();
-    await consumer.disconnect();
+    await consumer.stop();
 
     setTimeout(() => process.exit(0), 3000);
   } catch (err) {

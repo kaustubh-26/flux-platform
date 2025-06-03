@@ -2,9 +2,7 @@ import { AxiosInstance } from "axios";
 import { logger } from "../logger";
 import { quoteSchema, StockPerformance } from "../schemas/stock.schema";
 
-// -------------------------------------------------
 // Constants
-// -------------------------------------------------
 const BASE_URL = "https://finnhub.io/api/v1";
 
 export const POPULAR_STOCKS = [
@@ -16,9 +14,7 @@ export const POPULAR_STOCKS = [
   "AMD", "HON", "RTX", "INTU", "LOW",
 ];
 
-// -------------------------------------------------
 // API calls
-// -------------------------------------------------
 let rateLimited = false;
 
 async function getQuote(
@@ -47,13 +43,12 @@ async function getQuote(
     return null;
   }
 }
-/*
- Rate limit calls with 2.1 s delay
- 1 request ≈ every 2.1s
-
-~28 requests/min -> safe
-
-*/
+/**
+ *  Rate limit calls with 2.1 s delay
+ * 1 request ≈ every 2.1s
+ * ~28 requests/min -> safe
+ * 
+ */
 async function getMultipleQuotes(
   symbols: string[],
   apiKey: string,
@@ -79,9 +74,7 @@ async function getMultipleQuotes(
   return quotes;
 }
 
-// -------------------------------------------------
 // Calculations
-// -------------------------------------------------
 function calculatePerformance(quotes: any[]): StockPerformance[] {
   return quotes.map(q => {
     const change = q.c - q.pc;
@@ -100,9 +93,7 @@ function calculatePerformance(quotes: any[]): StockPerformance[] {
   });
 }
 
-// -------------------------------------------------
 // Public API
-// -------------------------------------------------
 let fetchInProgress = false;
 
 export async function getTopPerformers(params: {
