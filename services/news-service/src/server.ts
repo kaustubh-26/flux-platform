@@ -5,6 +5,19 @@ import axios from "axios";
 import https from 'https';
 import { getNews } from "./modules/getNews";
 import { Kafka, logLevel, Producer } from 'kafkajs';
+import { initNewsConsumer, stopNewsConsumer } from './modules/newsConsumer';
+import fs from "fs";
+
+function resolveSecret(envVar: string): string {
+  const value = process.env[envVar];
+  if (!value) {
+    throw new Error(`${envVar} is not set`);
+  }
+  if (value.startsWith("/run/secrets/")) {
+    return fs.readFileSync(value, "utf8").trim();
+  }
+  return value;
+}
 
 const httpsAgent = new https.Agent({
     keepAlive: true,
@@ -15,7 +28,7 @@ const axiosClient = axios.create({
     httpsAgent
 });
 
-let scheduler: any;
+let scheduler: NodeJS.Timeout | undefined;
 // -------------------------------------------------
 // Load & validate environment variables
 // -------------------------------------------------
@@ -23,13 +36,17 @@ dotenv.config();
 
 const envSchema = z.object({
     KAFKA_BROKER_ADDRESS: z.string().min(1),
-    NEWSDATA_API_KEY: z.string().min(1),
     NODE_ENV: z.enum(['development', 'production']).default('production')
 });
 
 type Env = z.infer<typeof envSchema>;
 
 const env = envSchema.parse(process.env);
+
+// Resolve secret once
+const NEWSDATA_API_KEY = process.env.NEWSDATA_API_KEY && !process.env.NEWSDATA_API_KEY.startsWith("/run/secrets/")
+    ? process.env.NEWSDATA_API_KEY : resolveSecret("NEWSDATA_API_KEY");
+
 
 // -------------------------------------------------
 // Kafka connection (News Service)
@@ -90,39 +107,13 @@ async function initKafkaSafely() {
             await producer.connect();
             await consumer.connect();
 
-            if (!kafkaAvailable) {
-                kafkaAvailable = true;
-                logger.info("Kafka recovered");
-            }
-
-            await consumer.subscribe({
-                topic: "news.service.command.refresh",
-                fromBeginning: false,
-            });
-
-            await consumer.run({
-                eachMessage: async ({ topic, message }) => {
-                    try {
-
-                        const value = message.value?.toString();
-                        logger.debug({ topic, value }, "Received Kafka command");
-
-                        // Process the request
-                        await fetchAndPublishTopNews("bff");
-                    } catch (err) {
-                        logger.error(
-                            {
-                                err,
-                                topic,
-                                value: message.value?.toString(),
-                            },
-                            "Unhandled error while processing News Kafka message"
-                        );
-                    }
-                },
-            });
-
             kafkaAvailable = true;
+
+            await initNewsConsumer({
+                consumer,
+                onRefreshCommand: fetchAndPublishTopNews,
+            });
+
             logger.info("Kafka connected (News service)");
 
             if (!schedulerStarted) {
@@ -135,7 +126,6 @@ async function initKafkaSafely() {
         } catch (err) {
             if (!kafkaDownLogged) {
                 kafkaDownLogged = true;
-                kafkaAvailable = false;
                 logger.warn(`Kafka unavailable, retrying every 10s`);
             }
             await new Promise(res => setTimeout(res, 10_000));
@@ -159,16 +149,14 @@ async function fetchAndPublishTopNews(trigger: string) {
         logger.debug(`News refresh triggered by: ${trigger}`);
 
         const news = await getNews({
-            apiKey: env.NEWSDATA_API_KEY,
+            apiKey: NEWSDATA_API_KEY,
             axiosClient,
         });
 
         await publishNewsEvent(news, trigger);
 
     } catch (err) {
-        // kafkaAvailable = false;
         logger.warn(
-            { err },
             "Kafka publish failed during scheduled news refresh"
         );
     } finally {
@@ -229,12 +217,12 @@ async function shutdown(signal: string) {
     try {
         httpsAgent.destroy();
         logger.info("Stopping Scheduler...");
-        clearInterval(scheduler);
+        if (scheduler) clearInterval(scheduler);
 
         try {
             logger.info("Disconnecting Kafka producer and consumer...");
+            await stopNewsConsumer(consumer);
             await producer.disconnect();
-            await consumer.disconnect();
         } catch (err) {
             logger.warn({ err }, "Error disconnecting Kafka");
         }
