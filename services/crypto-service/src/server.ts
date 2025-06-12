@@ -6,11 +6,12 @@ import https from 'https';
 import { getTopGainers } from "./modules/topGainers";
 import { getTopLosers } from "./modules/topLosers";
 import { cacheGet, shutdownCache } from './cache';
-import { Kafka, logLevel, Producer } from 'kafkajs';
+import { Consumer, Kafka, logLevel, Producer } from 'kafkajs';
 import { startCoinbaseMarketsTicker, shutdownCoinbaseMarketsTicker, MARKETS_TOPCOINS_CACHE_KEY } from "./modules/topMarketsTicker";
 import { TopCoin } from './interfaces/topCoins';
 import { KafkaHealth } from './kafkaHealth';
-
+import { initTopMoversConsumer } from './modules/topMoversConsumer';
+import { initTopCoinsConsumer } from './modules/topCoinsConsumer';
 
 const httpsAgent = new https.Agent({
     keepAlive: true,
@@ -41,8 +42,6 @@ const env = envSchema.parse(process.env);
 // -------------------------------------------------
 const kafkaHealth = new KafkaHealth();
 let kafkaRetryLogged = false;
-let topMoversCrashLogged = false;
-let topCoinsCrashLogged = false;
 
 const kafka = new Kafka({
     clientId: 'crypto-service',
@@ -64,13 +63,8 @@ const producer: Producer = kafka.producer({
     maxInFlightRequests: 5,       // Limit parallelism during retries
 });
 
-const topMoversConsumer = kafka.consumer({
-    groupId: 'crypto-topmovers-group',
-});
-
-const topCoinsConsumer = kafka.consumer({
-    groupId: 'crypto-topcoins-group',
-});
+let topMoversConsumer: Consumer;
+let topCoinsConsumer: Consumer;
 
 
 let kafkaStarting = false;
@@ -87,32 +81,6 @@ producer.on(producer.events.DISCONNECT, () => {
 });
 
 
-topMoversConsumer.on(topMoversConsumer.events.CRASH, event => {
-    kafkaHealth.markDown();
-    if (!topMoversCrashLogged) {
-        topMoversCrashLogged = true;
-
-        logger.error(
-            { error: event.payload.error },
-            'Kafka topmovers consumer crashed, retrying...'
-        );
-    }
-});
-
-topCoinsConsumer.on(topCoinsConsumer.events.CRASH, event => {
-    kafkaHealth.markDown();
-    if (!topCoinsCrashLogged) {
-        topCoinsCrashLogged = true;
-
-        logger.error(
-            { error: event.payload.error },
-            'Kafka topcoins consumer crashed, retrying...'
-        );
-    }
-});
-
-
-
 async function initKafkaSafely() {
     if (kafkaStarting) return;
     kafkaStarting = true;
@@ -122,33 +90,10 @@ async function initKafkaSafely() {
             await producer.connect();
 
             // Top Movers Consumer
-            await topMoversConsumer.connect();
-            await topMoversConsumer.subscribe({
-                topic: 'crypto.service.command.topmovers.refresh',
-                fromBeginning: false,
-            });
-
-            await topMoversConsumer.run({
-                partitionsConsumedConcurrently: 1,
-                eachMessage: async ({ topic, message }) => {
-                    await publishTopMovers(topic, message);
-                },
-            });
+            topMoversConsumer = await initTopMoversConsumer(kafka, logger, publishTopMovers, { fromBeginning: false });
 
             // Top Coins Consumer
-            await topCoinsConsumer.connect();
-
-            await topCoinsConsumer.subscribe({
-                topic: 'crypto.service.command.topcoins.refresh',
-                fromBeginning: false,
-            });
-
-            await topCoinsConsumer.run({
-                partitionsConsumedConcurrently: 1,
-                eachMessage: async () => {
-                    await publishTopCoins();
-                },
-            });
+            topCoinsConsumer = await initTopCoinsConsumer(kafka, logger, publishTopCoins, { fromBeginning: false });
 
 
             // Start scheduled execution
@@ -318,9 +263,15 @@ async function shutdown(signal: string) {
 
         try {
             logger.info('Disconnecting Kafka producer and consumer...');
+            if (topMoversConsumer) {
+                await topMoversConsumer.disconnect();
+            }
+
+            if (topCoinsConsumer) {
+                await topCoinsConsumer.disconnect();
+            }
+
             await producer.disconnect();
-            await topMoversConsumer.disconnect();
-            await topCoinsConsumer.disconnect();
         } catch (err) {
             logger.warn({ err }, 'Error while disconnecting Kafka producer');
         }
