@@ -75,7 +75,7 @@ services:
       --lazyfree-lazy-server-del yes"
 
   # -------------------------------------------------
-  # Weather Service (Node.js 22.17.1)
+  # Weather Service
   # -------------------------------------------------
   weather-service:
     build:
@@ -146,6 +146,31 @@ services:
       - valkey_pass
     ports:
       - "3002:3002"
+
+  # -------------------------------------------------
+  # News Service
+  # -------------------------------------------------
+  news-service:
+    build:
+      context: .
+      dockerfile: services/news-service/Dockerfile
+    container_name: news-service
+    env_file:
+      - services/news-service/.env
+    depends_on:
+      - kafka
+      - valkey
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      KAFKA_BROKER: kafka:9092
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
+    secrets:
+      - valkey_pass
+    ports:
+      - "3003:3003"
 
 
 volumes:
