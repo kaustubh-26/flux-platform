@@ -172,6 +172,40 @@ services:
     ports:
       - "3003:3003"
 
+  # -------------------------------------------------
+  # Server / BFF
+  # -------------------------------------------------
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: server
+    env_file:
+      - server/.env
+    depends_on:
+      - kafka
+      - valkey
+      - weather-service
+      - crypto-service
+      - stock-service
+      - news-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      KAFKA_BROKER: kafka:9092
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
+
+      WEATHER_SERVICE_URL: http://weather-service:3000
+      CRYPTO_SERVICE_URL: http://crypto-service:3001
+      STOCK_SERVICE_URL: http://stock-service:3002
+      NEWS_SERVICE_URL: http://news-service:3003
+    secrets:
+      - valkey_pass
+    ports:
+      - "3000:3000"
+
 
 volumes:
   kafka-data:
