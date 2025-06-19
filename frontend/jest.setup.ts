@@ -1,21 +1,12 @@
 import '@testing-library/jest-dom';
 
-// Suppress React act warning (harmless - React 18 + RTL 14 compatibility)
-const originalError = console.error;
+// Silence console.error in tests
 beforeAll(() => {
-  console.error = (...args: any[]) => {
-    if (
-      typeof args[0] === 'string' &&
-      args[0].includes('ReactDOMTestUtils.act')
-    ) {
-      return;
-    }
-    originalError.call(console, ...args);
-  };
+  jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterAll(() => {
-  console.error = originalError;
+  (console.error as jest.Mock).mockRestore();
 });
 
 // Mock window.matchMedia
