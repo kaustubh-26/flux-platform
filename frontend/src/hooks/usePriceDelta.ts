@@ -7,6 +7,14 @@ export function usePriceDelta(price?: number) {
   const [flash, setFlash] = useState<'up' | 'down' | null>(null);
 
   useEffect(() => {
+    if (!flash) return;
+
+    const t = setTimeout(() => setFlash(null), 500);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+
+  useEffect(() => {
     if (price == null) return;
 
     if (prevRef.current != null) {
@@ -20,11 +28,6 @@ export function usePriceDelta(price?: number) {
     }
 
     prevRef.current = price;
-
-    if (flash) {
-      const t = setTimeout(() => setFlash(null), 300);
-      return () => clearTimeout(t);
-    }
   }, [price]);
 
   return { direction, flash };
