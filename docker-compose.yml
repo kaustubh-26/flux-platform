@@ -206,6 +206,20 @@ services:
     ports:
       - "3000:3000"
 
+  # -------------------------------------------------
+  # Frontend (React + Vite)
+  # -------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: frontend
+    depends_on:
+      - server
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+
 
 volumes:
   kafka-data:
