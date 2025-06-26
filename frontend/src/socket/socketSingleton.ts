@@ -4,8 +4,9 @@ let socket: Socket | null = null;
 
 export const getSocket = (): Socket => {
     if (!socket) {
-        socket = io(import.meta.env.VITE_SERVER_URI, {
-            transports: ["websocket"],
+        socket = io({
+            path: "/socket.io",
+            transports: ["websocket", "polling"], // allow upgrade
             autoConnect: true,
 
             reconnection: true,
