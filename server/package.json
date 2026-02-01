@@ -1,6 +1,6 @@
 {
-  "name": "server",
-  "version": "1.0.0",
+  "name": "flux-platform-bff",
+  "version": "0.1.0",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node src/server.ts",
@@ -10,10 +10,22 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "description": "Backend-for-Frontend (BFF) for the Flux platform, responsible for real-time fan-out, Kafka coordination, and cache-backed client hydration",
+  "author": "Kaustubh Alandkar",
+  "license": "MIT",
+  "keywords": [
+    "flux",
+    "flux-platform",
+    "backend-for-frontend",
+    "bff",
+    "real-time",
+    "kafka",
+    "websockets",
+    "socket.io",
+    "event-driven",
+    "nodejs",
+    "distributed-systems"
+  ],
   "dependencies": {
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

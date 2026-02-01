@@ -1,6 +1,7 @@
 {
-  "name": "repo",
+  "name": "flux-platform",
   "version": "0.1.0",
+  "private": true,
   "workspaces": [
     "server",
     "services/*",
@@ -15,6 +16,25 @@
     "test:news": "npm run test --workspace news-service",
     "test:crypto": "npm run test --workspace crypto-service"
   },
+  "description": "An event-driven real-time data platform using Kafka, WebSockets, and a Backend-for-Frontend architecture",
+  "author": "Kaustubh Alandkar",
+  "license": "MIT",
+  "keywords": [
+    "flux",
+    "flux-platform",
+    "event-driven",
+    "real-time",
+    "kafka",
+    "microservices",
+    "websockets",
+    "socket.io",
+    "backend-for-frontend",
+    "bff",
+    "streaming",
+    "nodejs",
+    "docker",
+    "distributed-systems"
+  ],
   "devDependencies": {
     "jest": "^29.7.0",
     "ts-jest": "^29.1.1",

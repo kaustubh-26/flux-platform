@@ -1,6 +1,6 @@
 {
   "name": "crypto-service",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node src/server.ts",
@@ -10,10 +10,21 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "description": "Kafka-driven cryptocurrency market data and ticker streaming service for the Flux platform",
+  "author": "Kaustubh Alandkar",
+  "license": "MIT",
+  "keywords": [
+    "crypto",
+    "cryptocurrency",
+    "market-data",
+    "ticker",
+    "kafka",
+    "event-driven",
+    "microservice",
+    "real-time",
+    "nodejs",
+    "flux"
+  ],
   "dependencies": {
     "axios": "^1.6.2",
     "bottleneck": "^2.19.5",

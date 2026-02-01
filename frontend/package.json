@@ -1,7 +1,6 @@
 {
-  "name": "realtime-dashboard-ui",
-  "private": true,
-  "version": "0.0.0",
+  "name": "flux-platform-ui",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
@@ -13,6 +12,20 @@
     "test:coverage": "jest --coverage",
     "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand"
   },
+  "description": "Real-time, socket-driven dashboard UI for the Flux platform",
+  "author": "Kaustubh Alandkar",
+  "license": "MIT",
+  "keywords": [
+    "flux",
+    "platform-ui",
+    "dashboard",
+    "real-time",
+    "react",
+    "socket.io",
+    "websockets",
+    "frontend",
+    "ui"
+  ],
   "dependencies": {
     "@tailwindcss/vite": "^4.1.17",
     "lodash.debounce": "^4.0.8",
