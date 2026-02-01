@@ -3,3 +3,4 @@ valkey_pass.txt
 package-lock.json
 **/package-lock.json
 node_modules
+secrets
