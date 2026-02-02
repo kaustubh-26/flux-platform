@@ -26,9 +26,9 @@ services:
       CLUSTER_ID: 'PYN_mQZxRMC0xTX0hu8_aA'
 
       # Listeners
-      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://192.168.1.102:9092"
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
 
       # Basic broker config
@@ -38,19 +38,24 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_LOG4J_LOGGERS: 'kafka.cluster.Partition=WARN,kafka.log.UnifiedLog=WARN,kafka.coordinator.group=WARN'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 3
+
     volumes:
       - kafka-data:/var/lib/kafka/data
 
   # Kafka UI for debugging
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.1.102:9092
-    depends_on:
-      - kafka
+  # kafka-ui:
+  #   image: provectuslabs/kafka-ui:latest
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     KAFKA_CLUSTERS_0_NAME: local
+  #     KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.1.102:9092
+  #   depends_on:
+  #     - kafka
 
   # Valkey 7.2.8 service
   valkey:
@@ -88,8 +93,6 @@ services:
       context: .
       dockerfile: services/weather-service/Dockerfile
     container_name: weather-service
-    env_file:
-      - services/weather-service/.env
     depends_on:
       - kafka
       - valkey
@@ -113,8 +116,6 @@ services:
       context: .
       dockerfile: services/crypto-service/Dockerfile
     container_name: crypto-service
-    env_file:
-      - services/crypto-service/.env
     depends_on:
       - kafka
       - valkey
@@ -139,8 +140,6 @@ services:
       context: .
       dockerfile: services/stock-service/Dockerfile
     container_name: stock-service
-    env_file:
-      - services/stock-service/.env
     depends_on:
       - kafka
       - valkey
@@ -166,8 +165,6 @@ services:
       context: .
       dockerfile: services/news-service/Dockerfile
     container_name: news-service
-    env_file:
-      - services/news-service/.env
     depends_on:
       - kafka
       - valkey
@@ -193,8 +190,6 @@ services:
       context: .
       dockerfile: server/Dockerfile
     container_name: server
-    env_file:
-      - server/.env
     depends_on:
       - kafka
       - valkey
@@ -209,11 +204,8 @@ services:
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
       VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
-
-      WEATHER_SERVICE_URL: http://weather-service:3000
-      CRYPTO_SERVICE_URL: http://crypto-service:3001
-      STOCK_SERVICE_URL: http://stock-service:3002
-      NEWS_SERVICE_URL: http://news-service:3003
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      SERVER_PORT: 3000
     secrets:
       - valkey_pass
     ports:
