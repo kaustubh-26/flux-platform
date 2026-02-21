@@ -77,6 +77,10 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+afterEach(() => {
+  jest.resetAllMocks();
+});
+
 describe('getNews (unit)', () => {
   /**
    * Purpose:
