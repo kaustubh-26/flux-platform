@@ -1,5 +1,4 @@
 import { AxiosInstance } from 'axios';
-import { newsLimiter } from '@/modules/newsLimiter';
 import { cacheGet, cacheSet } from '@/cache';
 
 jest.mock('@/cache');
@@ -13,18 +12,22 @@ jest.mock('@/logger', () => ({
 }));
 
 /**
- * Rate limiter stub:
+ * Rate limiter mock:
+ * - Applies to all isolated module requires
  * - Executes scheduled function immediately
- * - Preserves behavior without timing complexity
+ * - Stubs event listeners to prevent errors
  */
-jest
-  .spyOn(newsLimiter, 'schedule')
-  .mockImplementation((fn: any) => fn());
+jest.mock('@/modules/newsLimiter', () => ({
+  newsLimiter: {
+    schedule: jest.fn((fn: any) => fn()),
+    on: jest.fn(),
+  },
+}));
 
 const createAxiosClient = (): AxiosInstance =>
-  ({
-    get: jest.fn(),
-  } as unknown as AxiosInstance);
+({
+  get: jest.fn(),
+} as unknown as AxiosInstance);
 
 /**
  * Schema-valid article factory
@@ -77,10 +80,6 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-afterEach(() => {
-  jest.resetAllMocks();
-});
-
 describe('getNews (unit)', () => {
   /**
    * Purpose:
@@ -89,23 +88,26 @@ describe('getNews (unit)', () => {
    * - Network call is skipped
    */
   test('returns cached news without invoking API', async () => {
-    jest.isolateModules(async () => {
-      const { getNews } = await import('@/modules/getNews');
+    let getNews: any;
 
-      (cacheGet as jest.Mock).mockResolvedValue([
-        { id: 'cached-id', title: 'Cached News' },
-      ]);
-
-      const axiosClient = createAxiosClient();
-
-      const result = await getNews({
-        apiKey: 'key',
-        axiosClient,
-      });
-
-      expect(result.source).toBe('cache');
-      expect(axiosClient.get).not.toHaveBeenCalled();
+    jest.isolateModules(() => {
+      // synchronous require — NOT async import
+      getNews = require('@/modules/getNews').getNews;
     });
+
+    (cacheGet as jest.Mock).mockResolvedValue([
+      { id: 'cached-id', title: 'Cached News' },
+    ]);
+
+    const axiosClient = createAxiosClient();
+
+    const result = await getNews({
+      apiKey: 'key',
+      axiosClient,
+    });
+
+    expect(result.source).toBe('cache');
+    expect(axiosClient.get).not.toHaveBeenCalled();
   });
 
   /**
@@ -115,28 +117,31 @@ describe('getNews (unit)', () => {
    * - Only one API request is executed
    */
   test('deduplicates concurrent requests using single-flight', async () => {
-    jest.isolateModules(async () => {
-      const { getNews } = await import('@/modules/getNews');
+    let getNews: any;
 
-      (cacheGet as jest.Mock).mockResolvedValue(null);
-
-      const axiosClient = createAxiosClient();
-
-      (axiosClient.get as jest.Mock).mockResolvedValue({
-        data: {
-          status: 'success',
-          totalResults: 1,
-          results: [createValidArticle()],
-        },
-      });
-
-      await Promise.all([
-        getNews({ apiKey: 'key', axiosClient }),
-        getNews({ apiKey: 'key', axiosClient }),
-      ]);
-
-      expect(axiosClient.get).toHaveBeenCalledTimes(1);
+    jest.isolateModules(() => {
+      // synchronous require — NOT async import
+      getNews = require('@/modules/getNews').getNews;
     });
+
+    (cacheGet as jest.Mock).mockResolvedValue(null);
+
+    const axiosClient = createAxiosClient();
+
+    (axiosClient.get as jest.Mock).mockResolvedValue({
+      data: {
+        status: 'success',
+        totalResults: 1,
+        results: [createValidArticle()],
+      },
+    });
+
+    await Promise.all([
+      getNews({ apiKey: 'key', axiosClient }),
+      getNews({ apiKey: 'key', axiosClient }),
+    ]);
+
+    expect(axiosClient.get).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -147,32 +152,35 @@ describe('getNews (unit)', () => {
    * - Result is cached
    */
   test('fetches news from API and caches the result', async () => {
-    jest.isolateModules(async () => {
-      const { getNews } = await import('@/modules/getNews');
+    let getNews: any;
 
-      (cacheGet as jest.Mock).mockResolvedValue(null);
-
-      const axiosClient = createAxiosClient();
-
-      (axiosClient.get as jest.Mock).mockResolvedValue({
-        data: {
-          status: 'success',
-          totalResults: 1,
-          results: [
-            createValidArticle({ article_id: '42' }),
-          ],
-        },
-      });
-
-      const result = await getNews({
-        apiKey: 'key',
-        axiosClient,
-      });
-
-      expect(result.source).toBe('api');
-      expect(cacheSet).toHaveBeenCalled();
-      expect(result.data[0].id).toBe('42');
+    jest.isolateModules(() => {
+      // synchronous require — NOT async import
+      getNews = require('@/modules/getNews').getNews;
     });
+
+    (cacheGet as jest.Mock).mockResolvedValue(null);
+
+    const axiosClient = createAxiosClient();
+
+    (axiosClient.get as jest.Mock).mockResolvedValue({
+      data: {
+        status: 'success',
+        totalResults: 1,
+        results: [
+          createValidArticle({ article_id: '42' }),
+        ],
+      },
+    });
+
+    const result = await getNews({
+      apiKey: 'key',
+      axiosClient,
+    });
+
+    expect(result.source).toBe('api');
+    expect(cacheSet).toHaveBeenCalled();
+    expect(result.data[0].id).toBe('42');
   });
 
   /**
@@ -180,35 +188,38 @@ describe('getNews (unit)', () => {
    * Verifies defensive behavior on schema mismatch:
    * - Invalid API payload is rejected
    * - Invalid data is not cached
-   */
+  */
   test('throws when News API response schema is invalid', async () => {
-    jest.isolateModules(async () => {
-      const { getNews } = await import('@/modules/getNews');
+    let getNews: any;
 
-      (cacheGet as jest.Mock).mockResolvedValue(null);
-
-      const axiosClient = createAxiosClient();
-
-      (axiosClient.get as jest.Mock).mockResolvedValue({
-        data: {
-          status: 'success',
-          totalResults: 1,
-          results: [
-            {
-              // intentionally incomplete article
-              datatype: 'news',
-              title: 'Invalid',
-            },
-          ],
-        },
-      });
-
-      await expect(
-        getNews({ apiKey: 'key', axiosClient })
-      ).rejects.toThrow('NEWS_SCHEMA_MISMATCH');
-
-      expect(cacheSet).not.toHaveBeenCalled();
+    jest.isolateModules(() => {
+      // synchronous require — NOT async import
+      getNews = require('@/modules/getNews').getNews;
     });
+
+    (cacheGet as jest.Mock).mockResolvedValue(null);
+
+    const axiosClient = createAxiosClient();
+
+    (axiosClient.get as jest.Mock).mockResolvedValue({
+      data: {
+        status: 'success',
+        totalResults: 1,
+        results: [
+          {
+            // intentionally incomplete article
+            datatype: 'news',
+            title: 'Invalid',
+          },
+        ],
+      },
+    });
+
+    await expect(
+      getNews({ apiKey: 'key', axiosClient })
+    ).rejects.toThrow('NEWS_SCHEMA_MISMATCH');
+
+    expect(cacheSet).not.toHaveBeenCalled();
   });
 
   /**
@@ -216,30 +227,33 @@ describe('getNews (unit)', () => {
    * Verifies circuit breaker behavior:
    * - Breaker opens after repeated network failures
    * - Subsequent calls fail immediately
-   */
+  */
   test('opens circuit breaker after repeated network failures', async () => {
-    jest.isolateModules(async () => {
-      const { getNews } = await import('@/modules/getNews');
+    let getNews: any;
 
-      (cacheGet as jest.Mock).mockResolvedValue(null);
+    jest.isolateModules(() => {
+      // synchronous require — NOT async import
+      getNews = require('@/modules/getNews').getNews;
+    });
 
-      const axiosClient = createAxiosClient();
+    (cacheGet as jest.Mock).mockResolvedValue(null);
 
-      (axiosClient.get as jest.Mock).mockRejectedValue({
-        code: 'ETIMEDOUT',
-      });
+    const axiosClient = createAxiosClient();
 
-      for (let i = 0; i < 3; i++) {
-        await expect(
-          getNews({ apiKey: 'key', axiosClient })
-        ).rejects.toBeDefined();
-      }
+    (axiosClient.get as jest.Mock).mockRejectedValue({
+      code: 'ETIMEDOUT',
+    });
 
+    for (let i = 0; i < 3; i++) {
       await expect(
         getNews({ apiKey: 'key', axiosClient })
-      ).rejects.toThrow('circuit breaker');
+      ).rejects.toBeDefined();
+    }
 
-      expect(axiosClient.get).toHaveBeenCalledTimes(3);
-    });
+    await expect(
+      getNews({ apiKey: 'key', axiosClient })
+    ).rejects.toThrow('circuit breaker');
+
+    expect(axiosClient.get).toHaveBeenCalledTimes(3);
   });
 });

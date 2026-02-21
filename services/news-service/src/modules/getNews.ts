@@ -193,3 +193,15 @@ function getNewsCacheKey(
 ) {
   return `${NEWS_CACHE_KEY}:${scope}:${language}:${categories.sort().join(",")}`;
 }
+
+/**
+ * Test utility — resets module-level singleton state
+ * between integration test suites to prevent
+ * circuit breaker and in-flight map from leaking
+ * across workers in CI.
+ */
+export function __resetNewsModuleState(): void {
+  consecutiveFailures = 0;
+  breakerOpenUntil = 0;
+  inFlight.clear();
+}

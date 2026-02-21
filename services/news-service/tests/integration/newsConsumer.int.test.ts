@@ -11,6 +11,7 @@ import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 
 import { initNewsConsumer, stopNewsConsumer } from '@/modules/newsConsumer';
 import { shutdownCache } from '@/cache';
+import { __resetNewsModuleState } from '@/modules/getNews';
 
 jest.setTimeout(180_000);
 
@@ -58,6 +59,11 @@ describe('initNewsConsumer (integration)', () => {
       createPartitioner: Partitioners.LegacyPartitioner,
     });
     await producer.connect();
+  });
+
+  // resets circuit breaker + inFlight map before each test
+  beforeEach(() => {
+    __resetNewsModuleState();
   });
 
   /**

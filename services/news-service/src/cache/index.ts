@@ -27,7 +27,7 @@ const redisOpts: RedisOptions = {
   retryStrategy: () => (isShuttingDown ? null : 5000),
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
-  lazyConnect: false,
+  lazyConnect: process.env.NODE_ENV === "test", // only lazy in test
 };
 
 export const redis = new IORedis(redisOpts);
@@ -36,6 +36,9 @@ export const redis = new IORedis(redisOpts);
 // Connection state tracking
 // -------------------------
 redis.on("connect", () => {
+  // Allow process to exit even if this socket is open (safe for Jest)
+  (redis as any).connector?.stream?.unref?.();
+
   if (!isCacheAvailable) {
     isCacheAvailable = true;
     logger.info("Valkey connected");
