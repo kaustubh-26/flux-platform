@@ -19,7 +19,7 @@ export function useLocation() {
             return;
         }
 
-        fetch("https://ipwho.is/")
+        fetch("https://ipapi.co/json/")
             .then((res) => res.json())
             .then((data) => {
                 const loc: Location = {
