@@ -3,8 +3,6 @@ import type { Config } from 'jest';
 const config: Config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  forceExit: true,
-  detectOpenHandles: false,
 
   transform: {
     '^.+\\.ts$': [
@@ -24,8 +22,6 @@ const config: Config = {
   ],
   // Faster & predictable paths
   clearMocks: true,
-  resetMocks: true,
-  restoreMocks: true,
 
   // Coverage (optional but recommended)
   collectCoverageFrom: [
