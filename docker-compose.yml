@@ -2,7 +2,7 @@ version: "3.8"
 
 secrets:
   valkey_pass:
-    file: ./secrets/valkey_pass.txt   # plain‑text file containing the password
+    file: ./secrets/valkey_pass.txt # plain‑text file containing the password
   weather_api_key:
     file: ./secrets/weather_api_key.txt
   newsdata_api_key:
@@ -69,21 +69,7 @@ services:
     secrets:
       - valkey_pass
     command: >
-      sh -c "valkey-server
-      --requirepass \"$$(cat /run/secrets/valkey_pass)\"
-      --appendonly yes
-      --appendfilename appendonly.aof
-      --appendfsync everysec
-      --no-appendfsync-on-rewrite yes
-      --save 900 1
-      --save 300 10
-      --save 60 10000
-      --maxmemory 128mb
-      --maxmemory-policy allkeys-lru
-      --notify-keyspace-events Ex
-      --lazyfree-lazy-eviction yes
-      --lazyfree-lazy-expire yes
-      --lazyfree-lazy-server-del yes"
+      sh -c "valkey-server --requirepass \"$$(cat /run/secrets/valkey_pass)\" --appendonly yes --appendfilename appendonly.aof --appendfsync everysec --no-appendfsync-on-rewrite yes --save 900 1 --save 300 10 --save 60 10000 --maxmemory 128mb --maxmemory-policy allkeys-lru --notify-keyspace-events Ex --lazyfree-lazy-eviction yes --lazyfree-lazy-expire yes --lazyfree-lazy-server-del yes"
 
   # -------------------------------------------------
   # Weather Service
@@ -93,6 +79,11 @@ services:
       context: .
       dockerfile: services/weather-service/Dockerfile
     container_name: weather-service
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - kafka
       - valkey
@@ -116,6 +107,11 @@ services:
       context: .
       dockerfile: services/crypto-service/Dockerfile
     container_name: crypto-service
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - kafka
       - valkey
@@ -140,6 +136,11 @@ services:
       context: .
       dockerfile: services/stock-service/Dockerfile
     container_name: stock-service
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - kafka
       - valkey
@@ -165,6 +166,11 @@ services:
       context: .
       dockerfile: services/news-service/Dockerfile
     container_name: news-service
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - kafka
       - valkey
@@ -190,6 +196,11 @@ services:
       context: .
       dockerfile: server/Dockerfile
     container_name: server
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - kafka
       - valkey
@@ -225,7 +236,52 @@ services:
     ports:
       - "5173:80"
 
+  # -------------------------------------------------
+  # Loki (Log Storage)
+  # -------------------------------------------------
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  # -------------------------------------------------
+  # Promtail (Log Shipper)
+  # -------------------------------------------------
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yaml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  # -------------------------------------------------
+  # Grafana (Dashboard)
+  # -------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    ports:
+      - "3005:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+    restart: unless-stopped
+
 
 volumes:
   kafka-data:
   valkey-data:
+  loki-data:
+  grafana-data:
