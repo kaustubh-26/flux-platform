@@ -6,15 +6,12 @@
  */
 
 import { Kafka, logLevel, Partitioners } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
-
 import { initNewsConsumer } from '@/modules/newsConsumer';
 import { shutdownCache } from '@/cache';
 
 jest.setTimeout(180_000);
 
 describe('initNewsConsumer (integration)', () => {
-    let kafkaContainer: StartedKafkaContainer;
     let kafka: Kafka;
     let producer: any;
     let consumer: any;
@@ -22,21 +19,21 @@ describe('initNewsConsumer (integration)', () => {
 
     /**
      * Setup:
-     * - Start Kafka broker using Testcontainers
+     * - Connect to shared Kafka broker started in globalSetup
      * - Create required topic for news events
      * - Initialize Kafka producer
      * - Prepare test logger
      */
     beforeAll(async () => {
-        kafkaContainer = await new KafkaContainer()
-            .withStartupTimeout(120_000)
-            .start();
+        if (!process.env.KAFKA_BROKER) {
+            throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+        }
+
+        const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
         kafka = new Kafka({
             clientId: 'test-news-consumer',
-            brokers: [
-                `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-            ],
+            brokers: kafkaBrokers,
             logLevel: logLevel.NOTHING,
         });
 
@@ -98,14 +95,15 @@ describe('initNewsConsumer (integration)', () => {
             await consumer.disconnect().catch(() => { });
         }
 
+        if (producer) {
+            await producer.disconnect().catch(() => { });
+        }
+
         shutdownCache();
 
         // Allow Kafka to drain before shutdown
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        if (kafkaContainer) {
-            await kafkaContainer.stop();
-        }
     });
 
     /**

@@ -6,8 +6,6 @@
  */
 
 import { Kafka, logLevel, Partitioners } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
-
 import { shutdownCache } from '@/cache';
 
 jest.setTimeout(180_000);
@@ -25,7 +23,6 @@ jest.mock('@/modules/weather', () => ({
 }));
 
 describe('startWeatherConsumer (integration)', () => {
-  let kafkaContainer: StartedKafkaContainer;
   let kafka: Kafka;
   let producer: any;
   let consumer: any;
@@ -38,15 +35,15 @@ describe('startWeatherConsumer (integration)', () => {
    * - Initialize producer
    */
   beforeAll(async () => {
-    kafkaContainer = await new KafkaContainer()
-      .withStartupTimeout(120_000)
-      .start();
+    if (!process.env.KAFKA_BROKER) {
+      throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+    }
+
+    const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
     kafka = new Kafka({
       clientId: 'weather-int-test',
-      brokers: [
-        `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-      ],
+      brokers: kafkaBrokers,
       logLevel: logLevel.NOTHING,
     });
 
@@ -81,7 +78,7 @@ describe('startWeatherConsumer (integration)', () => {
    */
   afterEach(async () => {
     if (consumer) {
-      await consumer.disconnect().catch(() => {});
+      await consumer.disconnect().catch(() => { });
     }
     mockGetData.mockReset();
   });
@@ -94,11 +91,16 @@ describe('startWeatherConsumer (integration)', () => {
   afterAll(async () => {
     shutdownCache();
 
+    if (consumer) {
+      await consumer.disconnect().catch(() => { });
+    }
+
+    if (producer) {
+      await producer.disconnect().catch(() => { });
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    if (kafkaContainer) {
-      await kafkaContainer.stop();
-    }
   });
 
   /**

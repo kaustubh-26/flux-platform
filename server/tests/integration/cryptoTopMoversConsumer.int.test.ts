@@ -7,7 +7,6 @@
  */
 
 import { Kafka, Partitioners, logLevel } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 import pino from 'pino';
 
 import { initCryptoTopMoversConsumer } from '@/modules/cryptoTopMoversConsumer';
@@ -16,7 +15,6 @@ import { shutdownCache } from '@/cache';
 jest.setTimeout(180_000);
 
 describe('initCryptoTopMoversConsumer (integration)', () => {
-    let kafkaContainer: StartedKafkaContainer;
     let kafka: Kafka;
     let producer: any;
     let consumer: any;
@@ -31,15 +29,15 @@ describe('initCryptoTopMoversConsumer (integration)', () => {
      * - Initialize Kafka producer
      */
     beforeAll(async () => {
-        kafkaContainer = await new KafkaContainer()
-            .withStartupTimeout(120_000)
-            .start();
+        if (!process.env.KAFKA_BROKER) {
+            throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+        }
+
+        const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
         kafka = new Kafka({
             clientId: 'test-crypto-topmovers',
-            brokers: [
-                `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-            ],
+            brokers: kafkaBrokers,
             logLevel: logLevel.NOTHING,
         });
 
@@ -75,14 +73,15 @@ describe('initCryptoTopMoversConsumer (integration)', () => {
             await consumer.disconnect().catch(() => { });
         }
 
+        if (producer) {
+            await producer.disconnect().catch(() => { });
+        }
+
         shutdownCache();
 
         // Allow Kafka to drain before shutdown
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        if (kafkaContainer) {
-            await kafkaContainer.stop();
-        }
     });
 
     /**

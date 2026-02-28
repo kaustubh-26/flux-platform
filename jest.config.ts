@@ -3,6 +3,10 @@ import type { Config } from '@jest/types';
 const config: Config.InitialOptions = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+
+  globalSetup: '<rootDir>/tests/setupKafka.ts',
+  globalTeardown: '<rootDir>/tests/teardownKafka.ts',
+  
   projects: [
     '<rootDir>/server',
     '<rootDir>/frontend',

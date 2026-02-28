@@ -6,7 +6,6 @@
  */
 
 import { Kafka, Partitioners, EachMessagePayload, logLevel } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 import pino from 'pino';
 
 import { sendLocationIfChanged } from '@/sendLocation';
@@ -15,26 +14,24 @@ import { shutdownCache } from '@/cache';
 jest.setTimeout(120_000);
 
 describe('sendLocationIfChanged (Kafka integration)', () => {
-  let kafkaContainer: StartedKafkaContainer;
   let kafka: Kafka;
   let producer: any;
-  let consumer: any;
 
   /**
    * Setup:
-   * - Start Kafka using Testcontainers
+   * - Connect to shared Kafka broker started in globalSetup
    * - Initialize Kafka producer
    * - Initialize Kafka consumer subscribed to weather fetch command topic
    */
   beforeAll(async () => {
-    kafkaContainer = await new KafkaContainer()
-      .withStartupTimeout(120_000)
-      .start();
+    if (!process.env.KAFKA_BROKER) {
+      throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+    }
+
+    const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
     kafka = new Kafka({
-      brokers: [
-        `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-      ],
+      brokers: kafkaBrokers,
       logLevel: logLevel.NOTHING,
     });
 
@@ -43,12 +40,6 @@ describe('sendLocationIfChanged (Kafka integration)', () => {
     });
     await producer.connect();
 
-    consumer = kafka.consumer({ groupId: 'test-group' });
-    await consumer.connect();
-    await consumer.subscribe({
-      topic: 'weather.service.command.fetch',
-      fromBeginning: true,
-    });
   });
 
   /**
@@ -58,13 +49,13 @@ describe('sendLocationIfChanged (Kafka integration)', () => {
    * - Stop Kafka container
    */
   afterAll(async () => {
-    await producer.disconnect();
-    await consumer.disconnect();
+    if (producer) {
+      await producer.disconnect().catch(() => { });
+    }
 
     // Defensive cleanup to avoid open handles
     shutdownCache();
 
-    await kafkaContainer.stop();
   });
 
   /**
@@ -93,6 +84,13 @@ describe('sendLocationIfChanged (Kafka integration)', () => {
         ip: '127.0.0.1',
       },
     };
+
+    const consumer = kafka.consumer({ groupId: `test-group-${Date.now()}` });
+    await consumer.connect();
+    await consumer.subscribe({
+      topic: 'weather.service.command.fetch',
+      fromBeginning: false,
+    });
 
     /**
      * Collects messages received by the Kafka consumer
@@ -134,5 +132,8 @@ describe('sendLocationIfChanged (Kafka integration)', () => {
      */
     expect(received).toHaveLength(1);
     expect(received[0]).toBe(JSON.stringify(payload));
+
+    await consumer.disconnect();
+
   });
 });

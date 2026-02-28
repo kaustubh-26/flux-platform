@@ -6,7 +6,6 @@
  */
 
 import { Kafka, Partitioners, logLevel } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 import pino from 'pino';
 
 import { initCryptoTickerConsumer } from '@/modules/cryptoTickerConsumer';
@@ -16,7 +15,6 @@ import { shutdownCache } from '@/cache';
 jest.setTimeout(180_000);
 
 describe('initCryptoTickerConsumer (integration)', () => {
-  let kafkaContainer: StartedKafkaContainer;
   let kafka: Kafka;
   let producer: any;
   let consumer: any;
@@ -26,20 +24,20 @@ describe('initCryptoTickerConsumer (integration)', () => {
 
   /**
    * Setup:
-   * - Start Kafka broker using Testcontainers
+   * - Connect to shared Kafka broker started in globalSetup
    * - Create required topic for crypto ticker updates
    * - Initialize Kafka producer
    */
   beforeAll(async () => {
-    kafkaContainer = await new KafkaContainer()
-      .withStartupTimeout(120_000)
-      .start();
+    if (!process.env.KAFKA_BROKER) {
+      throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+    }
+
+    const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
     kafka = new Kafka({
       clientId: 'test-crypto-ticker',
-      brokers: [
-        `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-      ],
+      brokers: kafkaBrokers,
       logLevel: logLevel.NOTHING,
     });
 
@@ -72,7 +70,11 @@ describe('initCryptoTickerConsumer (integration)', () => {
    */
   afterAll(async () => {
     if (consumer) {
-      await consumer.disconnect().catch(() => {});
+      await consumer.disconnect().catch(() => { });
+    }
+
+    if (producer) {
+      await producer.disconnect().catch(() => { });
     }
 
     // Defensive cleanup to avoid open handles
@@ -81,9 +83,6 @@ describe('initCryptoTickerConsumer (integration)', () => {
     // Allow Kafka to drain before shutdown
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    if (kafkaContainer) {
-      await kafkaContainer.stop();
-    }
   });
 
   /**

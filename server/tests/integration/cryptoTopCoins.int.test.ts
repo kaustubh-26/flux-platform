@@ -7,7 +7,6 @@
  */
 
 import { Kafka, Partitioners, logLevel } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 import pino from 'pino';
 
 import { initCryptoTopCoinsConsumer } from '@/modules/cryptoTopCoinsConsumer';
@@ -18,7 +17,6 @@ import { shutdownCache } from '@/cache';
 jest.setTimeout(180_000);
 
 describe('initCryptoTopCoinsConsumer (integration)', () => {
-  let kafkaContainer: StartedKafkaContainer;
   let kafka: Kafka;
   let consumer: any;
 
@@ -31,15 +29,15 @@ describe('initCryptoTopCoinsConsumer (integration)', () => {
    * - Create required topic for the consumer
    */
   beforeAll(async () => {
-    kafkaContainer = await new KafkaContainer()
-      .withStartupTimeout(120_000)
-      .start();
+    if (!process.env.KAFKA_BROKER) {
+      throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+    }
+
+    const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
     kafka = new Kafka({
       clientId: 'test-crypto-topcoins',
-      brokers: [
-        `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-      ],
+      brokers: kafkaBrokers,
       logLevel: logLevel.NOTHING,
     });
 
@@ -71,8 +69,6 @@ describe('initCryptoTopCoinsConsumer (integration)', () => {
     if (consumer) {
       await consumer.disconnect();
     }
-
-    await kafkaContainer.stop();
   });
 
   /**

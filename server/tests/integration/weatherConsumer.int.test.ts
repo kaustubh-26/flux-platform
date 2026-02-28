@@ -6,7 +6,6 @@
  */
 
 import { Kafka, Partitioners, logLevel } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 import pino from 'pino';
 
 import { initWeatherConsumer } from '@/modules/weatherConsumer';
@@ -14,7 +13,6 @@ import { initWeatherConsumer } from '@/modules/weatherConsumer';
 jest.setTimeout(180_000);
 
 describe('initWeatherConsumer (integration)', () => {
-    let kafkaContainer: StartedKafkaContainer;
     let kafka: Kafka;
     let consumer: any;
 
@@ -23,19 +21,19 @@ describe('initWeatherConsumer (integration)', () => {
 
     /**
      * Setup:
-     * - Start Kafka using Testcontainers
+     * - Connect to shared Kafka broker started in globalSetup
      * - Create required topic for weather events
      */
     beforeAll(async () => {
-        kafkaContainer = await new KafkaContainer()
-            .withStartupTimeout(120_000)
-            .start();
+        if (!process.env.KAFKA_BROKER) {
+            throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+        }
+
+        const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
         kafka = new Kafka({
             clientId: 'test-weather-consumer',
-            brokers: [
-                `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-            ],
+            brokers: kafkaBrokers,
             logLevel: logLevel.NOTHING,
         });
 
@@ -64,7 +62,6 @@ describe('initWeatherConsumer (integration)', () => {
         if (consumer) {
             await consumer.disconnect();
         }
-        await kafkaContainer.stop();
     });
 
     /**

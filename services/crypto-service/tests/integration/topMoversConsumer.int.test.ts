@@ -6,7 +6,6 @@
  */
 
 import { Kafka, Partitioners, logLevel } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 import pino from 'pino';
 
 import { initTopMoversConsumer } from '@/modules/topMoversConsumer';
@@ -14,7 +13,6 @@ import { initTopMoversConsumer } from '@/modules/topMoversConsumer';
 jest.setTimeout(180_000);
 
 describe('initTopMoversConsumer (integration)', () => {
-  let kafkaContainer: StartedKafkaContainer;
   let kafka: Kafka;
   let producer: any;
   let consumer: any;
@@ -24,19 +22,19 @@ describe('initTopMoversConsumer (integration)', () => {
 
   /**
    * Setup:
-   * - Start real Kafka broker
+   * - Connect to shared Kafka broker started in globalSetup
    * - Create producer
    */
   beforeAll(async () => {
-    kafkaContainer = await new KafkaContainer()
-      .withStartupTimeout(120_000)
-      .start();
+    if (!process.env.KAFKA_BROKER) {
+      throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+    }
+
+    const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
     kafka = new Kafka({
       clientId: 'test-topmovers',
-      brokers: [
-        `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-      ],
+      brokers: kafkaBrokers,
       logLevel: logLevel.NOTHING,
     });
 
@@ -57,12 +55,13 @@ describe('initTopMoversConsumer (integration)', () => {
       await consumer.disconnect().catch(() => {});
     }
 
-    await producer.disconnect();
+    if (producer) {
+      await producer.disconnect().catch(() => { });
+    }
 
     // Allow Kafka to drain
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    await kafkaContainer.stop();
   });
 
   /**

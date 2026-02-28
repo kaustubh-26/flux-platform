@@ -7,7 +7,6 @@
  */
 
 import { Kafka, Partitioners, logLevel } from 'kafkajs';
-import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 import pino from 'pino';
 
 import { initStockConsumer } from '@/modules/stockConsumer';
@@ -16,7 +15,6 @@ import { initStockConsumer } from '@/modules/stockConsumer';
 jest.setTimeout(180_000);
 
 describe('initStockConsumer (integration)', () => {
-    let kafkaContainer: StartedKafkaContainer;
     let kafka: Kafka;
     let consumerInstance: any;
 
@@ -24,15 +22,15 @@ describe('initStockConsumer (integration)', () => {
     const logger = pino({ level: 'silent' });
 
     beforeAll(async () => {
-        kafkaContainer = await new KafkaContainer()
-            .withStartupTimeout(120_000)
-            .start();
+        if (!process.env.KAFKA_BROKER) {
+            throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+        }
+
+        const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
 
         kafka = new Kafka({
             clientId: 'test-stock-consumer',
-            brokers: [
-                `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
-            ],
+            brokers: kafkaBrokers,
             logLevel: logLevel.NOTHING,
         });
 
@@ -56,8 +54,6 @@ describe('initStockConsumer (integration)', () => {
         if (consumerInstance) {
             await consumerInstance.stop();
         }
-
-        await kafkaContainer.stop();
     });
 
     /**
@@ -69,8 +65,14 @@ describe('initStockConsumer (integration)', () => {
     test('consumes Kafka message and invokes handler', async () => {
         const handler = jest.fn().mockResolvedValue(undefined);
 
+        if (!process.env.KAFKA_BROKER) {
+            throw new Error('KAFKA_BROKER is not set. Did globalSetup run?');
+        }
+
+        const kafkaBrokers = process.env.KAFKA_BROKER.split(',');
+
         consumerInstance = initStockConsumer({
-            broker: `${kafkaContainer.getHost()}:${kafkaContainer.getMappedPort(9093)}`,
+            broker: kafkaBrokers[0],
             handler,
             fromBeginning: true,
         });
