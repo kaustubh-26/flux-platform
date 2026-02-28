@@ -4,8 +4,13 @@ const config: Config.InitialOptions = {
   preset: 'ts-jest',
   testEnvironment: 'node',
 
-  globalSetup: '<rootDir>/tests/setupKafka.ts',
-  globalTeardown: '<rootDir>/tests/teardownKafka.ts',
+  // Only for integration tests
+  globalSetup: process.env.RUN_INTEGRATION_TESTS === 'true' 
+    ? '<rootDir>/tests/setupKafka.ts'
+    : undefined,
+  globalTeardown: process.env.RUN_INTEGRATION_TESTS === 'true' 
+    ? '<rootDir>/tests/teardownKafka.ts'
+    : undefined,
   
   projects: [
     '<rootDir>/server',
