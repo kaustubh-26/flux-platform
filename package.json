@@ -9,6 +9,8 @@
   ],
   "scripts": {
     "test": "jest",
+    "test:unit": "jest --testPathIgnorePatterns=.int.test.ts",
+    "test:int": "jest --testMatch '**/*.int.test.ts'",
     "test:server": "npm run test --workspace server",
     "test:frontend": "npm run test --workspace frontend",
     "test:weather": "npm run test --workspace weather-service",
