@@ -52,7 +52,7 @@ jobs:
         run: npm ci
 
       - name: Run Integration Tests
-        run: npm run test:int -- --maxWorkers=1
+        run: npm run test:int
         env:
           VALKEY_HOST: localhost
           VALKEY_PORT: 6379
