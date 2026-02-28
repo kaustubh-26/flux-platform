@@ -1,6 +1,12 @@
 import { KafkaContainer, StartedKafkaContainer } from '@testcontainers/kafka';
 
 export default async function globalSetup() {
+    // If running in GitHub Actions, DO NOT start Testcontainers
+    if (process.env.CI === 'true') {
+        console.log('CI environment detected. Using GitHub Kafka service.');
+        return;
+    }
+    
     console.log('Starting shared Kafka container for integration tests...');
 
     let kafkaContainer: StartedKafkaContainer;

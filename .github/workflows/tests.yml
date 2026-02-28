@@ -32,6 +32,21 @@ jobs:
     needs: unit-tests
 
     services:
+      kafka:
+        image: bitnami/kafka:3.6
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_CFG_PROCESS_ROLES: broker,controller
+          KAFKA_CFG_NODE_ID: 1
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+          ALLOW_PLAINTEXT_LISTENER: yes
+
       valkey:
         image: valkey/valkey:latest
         ports:
@@ -51,8 +66,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Wait for Kafka to be ready
+        run: |
+          echo "Waiting for Kafka..."
+          for i in {1..30}; do
+            nc -z localhost 9092 && echo "Kafka is ready!" && exit 0
+            sleep 2
+          done
+          echo "Kafka failed to start"
+          exit 1
+
       - name: Run Integration Tests
         run: npm run test:int
         env:
+          KAFKA_BROKER: localhost:9092
           VALKEY_HOST: localhost
           VALKEY_PORT: 6379
