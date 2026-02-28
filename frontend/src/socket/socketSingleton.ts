@@ -4,7 +4,11 @@ let socket: Socket | null = null;
 
 export const getSocket = (): Socket => {
     if (!socket) {
-        socket = io({
+        const serverUrl = window.location.hostname.includes('.dev')
+            ? `wss://${window.location.host}`  // Secure WS
+            : `ws://${window.location.host}`;
+
+        socket = io(serverUrl, {
             path: "/socket.io",
             transports: ["websocket", "polling"], // allow upgrade
             autoConnect: true,
