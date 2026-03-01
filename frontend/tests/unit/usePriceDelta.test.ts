@@ -1,111 +1,112 @@
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
+import { createElement, type ReactNode } from 'react';
 import { usePriceDelta } from '@/hooks/usePriceDelta';
+import cryptoPriceDeltaReducer, {
+  priceDeltaUpdated,
+} from '@/store/cryptoPriceDeltaSlice';
 
 /**
  * Unit Test:
- * What we verify:
- * - Direction is derived correctly from price changes
- * - Flash is triggered on change
- * - Flash automatically resets after the timeout
- * - Undefined / null inputs are handled defensively
+ * We verify:
+ * - Hook reads price delta state from Redux
+ * - Direction and flash update on dispatched price changes
+ * - Flash resets after the timeout
  */
 
+
+const makeStore = () =>
+  configureStore({
+    reducer: {
+      cryptoPriceDelta: cryptoPriceDeltaReducer,
+    },
+  });
+
+const makeWrapper =
+  (store: ReturnType<typeof makeStore>) =>
+  ({ children }: { children: ReactNode }) =>
+    createElement(Provider, { store }, children);
+
 describe('usePriceDelta (unit)', () => {
-    beforeEach(() => {
-        // Use fake timers so the flash timeout is deterministic
-        jest.useFakeTimers();
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(0));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('returns nulls when no entry exists', () => {
+    const store = makeStore();
+    const { result } = renderHook(() => usePriceDelta('BTC-USD'), {
+      wrapper: makeWrapper(store),
     });
 
-    afterEach(() => {
-        // Always restore real timers to avoid leaking state between tests
-        jest.useRealTimers();
+    expect(result.current.direction).toBeNull();
+    expect(result.current.flash).toBeNull();
+  });
+
+  it('does not set direction on first price', () => {
+    const store = makeStore();
+
+    act(() => {
+      store.dispatch(
+        priceDeltaUpdated({ productId: 'BTC-USD', price: 100, at: 0 })
+      );
     });
 
-    type Props = {
-        price?: number | null;
-    };
-    type Result = {
-        direction: 'up' | 'down' | null;
-        flash: 'up' | 'down' | null;
-    };
-    it('does not set direction or flash on first price value', () => {
-        const { result, rerender } = renderHook<Result, Props>(
-            ({ price }: { price?: number | null }) => usePriceDelta(price ?? undefined),
-            { initialProps: { price: undefined } }
-        );
-
-        // First valid price initializes previous reference only
-        rerender({ price: 100 });
-
-        expect(result.current.direction).toBeNull();
-        expect(result.current.flash).toBeNull();
+    const { result } = renderHook(() => usePriceDelta('BTC-USD'), {
+      wrapper: makeWrapper(store),
     });
 
-    it('sets direction and flash to up when price increases', () => {
-        const { result, rerender } = renderHook<Result, Props>(
-            ({ price }) => usePriceDelta(price ?? undefined),
-            { initialProps: { price: undefined } }
-        );
+    expect(result.current.direction).toBeNull();
+    expect(result.current.flash).toBeNull();
+  });
 
-        // Initialize previous price
-        rerender({ price: 100 });
+  it('sets direction and flash on increase', () => {
+    const store = makeStore();
 
-        // Increase price → direction derived
-        rerender({ price: 110 });
-
-        expect(result.current.direction).toBe('up');
-        expect(result.current.flash).toBe('up');
+    const { result } = renderHook(() => usePriceDelta('BTC-USD'), {
+      wrapper: makeWrapper(store),
     });
 
-    it('sets direction and flash to down when price decreases', () => {
-        const { result, rerender } = renderHook<Result, Props>(
-            ({ price }) => usePriceDelta(price ?? undefined),
-            { initialProps: { price: undefined } }
-        );
-
-        // Initialize previous price
-        rerender({ price: 100 });
-
-        // Decrease price → direction derived
-        rerender({ price: 90 });
-
-        expect(result.current.direction).toBe('down');
-        expect(result.current.flash).toBe('down');
+    act(() => {
+      store.dispatch(
+        priceDeltaUpdated({ productId: 'BTC-USD', price: 100, at: 0 })
+      );
+      store.dispatch(
+        priceDeltaUpdated({ productId: 'BTC-USD', price: 110, at: 0 })
+      );
     });
 
-    it('resets flash after timeout', async () => {
-        const { result, rerender } = renderHook<Result, Props>(
-            ({ price }) => usePriceDelta(price ?? undefined),
-            { initialProps: { price: undefined } }
-        );
+    expect(result.current.direction).toBe('up');
+    expect(result.current.flash).toBe('up');
+  });
 
-        // Initialize previous price
-        rerender({ price: 100 });
+  it('clears flash after timeout', () => {
+    const store = makeStore();
 
-        // Trigger change
-        rerender({ price: 105 });
-        expect(result.current.flash).toBe('up');
-
-        act(() => {
-            jest.advanceTimersByTime(300);
-        });
-
-        await waitFor(() => {
-            expect(result.current.flash).toBeNull();
-        });
+    const { result } = renderHook(() => usePriceDelta('BTC-USD'), {
+      wrapper: makeWrapper(store),
     });
 
-    it('ignores updates when price is undefined or null', () => {
-
-        const { result, rerender } = renderHook<Result, Props>(
-            ({ price }: { price?: number | null }) => usePriceDelta(price ?? undefined),
-            { initialProps: { price: 100 } }
-        );
-
-        rerender({ price: undefined });
-        rerender({ price: null });
-
-        expect(result.current.direction).toBeNull();
-        expect(result.current.flash).toBeNull();
+    act(() => {
+      store.dispatch(
+        priceDeltaUpdated({ productId: 'BTC-USD', price: 100, at: 0 })
+      );
+      store.dispatch(
+        priceDeltaUpdated({ productId: 'BTC-USD', price: 105, at: 0 })
+      );
     });
+
+    expect(result.current.flash).toBe('up');
+
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+
+    expect(result.current.flash).toBeNull();
+  });
 });

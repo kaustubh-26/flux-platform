@@ -1,5 +1,6 @@
 import { useTopMovers } from '@/hooks/useCryptoMovers';
 import type { CryptoAsset } from '@/interfaces/crypto';
+import { formatUsd } from '@/utils/format';
 
 export default function CryptoMoversCard() {
   const movers = useTopMovers();
@@ -80,7 +81,7 @@ function MoversColumn({
 
 // ROW
 function MoverRow({ coin }: { coin: CryptoAsset }) {
-  const price = Number(coin.currentPrice) || 0;
+  const price = Number(coin.currentPrice);
   const change1h = Number(coin.priceChangePercentage1h ?? 0);
   const volume = Number(coin.totalVolume) || 0;
 
@@ -110,7 +111,7 @@ function MoverRow({ coin }: { coin: CryptoAsset }) {
 
         <div className="text-right shrink-0">
           <div className="font-mono text-white">
-            ${price < 1 ? price.toFixed(4) : price.toFixed(2)}
+            {formatUsd(price)}
           </div>
           <div
             className={`text-xs font-mono ${change1h >= 0 ? 'text-emerald-400' : 'text-rose-400'
@@ -136,7 +137,7 @@ function MoverRow({ coin }: { coin: CryptoAsset }) {
         </div>
 
         <span className="text-right font-mono text-white">
-          ${price < 1 ? price.toFixed(4) : price.toFixed(2)}
+          {formatUsd(price)}
         </span>
 
         <span
@@ -162,4 +163,3 @@ function formatVolume(value: number) {
   if (value >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
   return value.toString();
 }
-

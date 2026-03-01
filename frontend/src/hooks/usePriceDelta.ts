@@ -1,34 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAppSelector } from '@/store/hooks';
 
-export function usePriceDelta(price?: number) {
-  const prevRef = useRef<number | null>(null);
+export function usePriceDelta(productId?: string) {
+  const entry = useAppSelector(state =>
+    productId ? state.cryptoPriceDelta.byProductId[productId] : undefined
+  );
 
-  const [direction, setDirection] = useState<'up' | 'down' | null>(null);
-  const [flash, setFlash] = useState<'up' | 'down' | null>(null);
+  const [, forceRender] = useState(0);
 
   useEffect(() => {
-    if (!flash) return;
+    if (!entry?.flashUntil) return;
 
-    const t = setTimeout(() => setFlash(null), 500);
+    const remaining = entry.flashUntil - Date.now();
+    if (remaining <= 0) return;
+
+    const t = setTimeout(() => {
+      forceRender(v => v + 1);
+    }, remaining);
+
     return () => clearTimeout(t);
-  }, [flash]);
+  }, [entry?.flashUntil]);
 
-
-  useEffect(() => {
-    if (price == null) return;
-
-    if (prevRef.current != null) {
-      if (price > prevRef.current) {
-        setDirection('up');
-        setFlash('up');
-      } else if (price < prevRef.current) {
-        setDirection('down');
-        setFlash('down');
-      }
-    }
-
-    prevRef.current = price;
-  }, [price]);
+  const direction = entry?.direction ?? null;
+  const flash =
+    entry?.flashUntil && entry.flashUntil > Date.now()
+      ? entry.direction
+      : null;
 
   return { direction, flash };
 }

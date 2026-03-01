@@ -1,95 +1,91 @@
 import { renderHook, act } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
+import { createElement, type ReactNode } from 'react';
 import { useTopMovers } from '@/hooks/useCryptoMovers';
-import { useSocket } from '@/context/socketContext';
+import cryptoMoversReducer, {
+  moversReceived,
+} from '@/store/cryptoMoversSlice';
+import cryptoTickerReducer from '@/store/cryptoTickerSlice';
+import cryptoTopCoinsReducer from '@/store/cryptoTopCoinsSlice';
+import cryptoPriceDeltaReducer from '@/store/cryptoPriceDeltaSlice';
+import type { CryptoMoversData } from '@/interfaces/crypto';
 
 /**
  * Unit Test:
- * - Socket.IO is fully mocked
- * - We test observable behavior only:
- *   - event subscription
- *   - initial request emission
- *   - defensive payload handling
- *   - cleanup on unmount
- * */
+ * We verify:
+ * - Hook reads movers data from Redux
+ * - Returns null when store is empty
+ * - Updates when movers actions are dispatched
+ */
 
-jest.mock('@/context/socketContext', () => ({
-  useSocket: jest.fn(),
-}));
+const makeStore = (preloaded?: CryptoMoversData) =>
+  configureStore({
+    reducer: {
+      cryptoMovers: cryptoMoversReducer,
+      cryptoTicker: cryptoTickerReducer,
+      cryptoTopCoins: cryptoTopCoinsReducer,
+      cryptoPriceDelta: cryptoPriceDeltaReducer,
+    },
+    preloadedState: preloaded
+      ? {
+          cryptoMovers: {
+            data: preloaded,
+            status: 'ready',
+            lastUpdated: Date.now(),
+          },
+          cryptoTicker: { byProductId: {}, lastUpdatedById: {} },
+          cryptoTopCoins: { items: [], status: 'idle', lastUpdated: null },
+          cryptoPriceDelta: { byProductId: {} },
+        }
+      : undefined,
+  });
 
-jest.mock('@/context/socketContext');
+const makeWrapper =
+  (store: ReturnType<typeof makeStore>) =>
+  ({ children }: { children: ReactNode }) =>
+    createElement(Provider, { store }, children);
 
 describe('useCryptoMovers (unit)', () => {
-    const on = jest.fn();
-    const off = jest.fn();
-    const emit = jest.fn();
-
-    const mockSocket = { on, off, emit };
-
-    beforeEach(() => {
-        jest.clearAllMocks();
-        (useSocket as jest.Mock).mockReturnValue({ socket: mockSocket });
+  it('returns null when movers are not in the store', () => {
+    const store = makeStore();
+    const { result } = renderHook(() => useTopMovers(), {
+      wrapper: makeWrapper(store),
     });
 
-    it('subscribes to response event and emits initial request on mount', () => {
-        renderHook(() => useTopMovers());
+    expect(result.current).toBeNull();
+  });
 
-        // Verifies correct wiring to socket layer
-        expect(on).toHaveBeenCalledWith(
-            'cryptoTopMoversResponse',
-            expect.any(Function)
-        );
+  it('returns movers from the store when available', () => {
+    const data: CryptoMoversData = {
+      topGainers: { data: [{ id: 'btc' } as any], timestamp: 0 },
+      topLosers: { data: [{ id: 'eth' } as any], timestamp: 0 },
+    };
 
-        // Verifies initial fetch trigger
-        expect(emit).toHaveBeenCalledWith('cryptoTopMoversRequest');
+    const store = makeStore(data);
+    const { result } = renderHook(() => useTopMovers(), {
+      wrapper: makeWrapper(store),
     });
 
-    it('updates movers only when payload is successful and complete', () => {
-        const { result } = renderHook(() => useTopMovers());
+    expect(result.current).toEqual(data);
+  });
 
-        // Extract the registered event handler
-        const handler = on.mock.calls[0][1];
+  it('updates when movers are received', () => {
+    const store = makeStore();
 
-        const validPayload = {
-            status: 'success',
-            data: {
-                topGainers: { data: [{ symbol: 'BTC' }] },
-                topLosers: { data: [{ symbol: 'ETH' }] }
-            }
-        };
-
-        act(() => {
-            handler(validPayload);
-        });
-
-        // Hook exposes domain data only after validation passes
-        expect(result.current).toEqual(validPayload.data);
+    const { result } = renderHook(() => useTopMovers(), {
+      wrapper: makeWrapper(store),
     });
 
-    it('ignores payloads that are unsuccessful or incomplete', () => {
-        const { result } = renderHook(() => useTopMovers());
-        const handler = on.mock.calls[0][1];
+    const incoming: CryptoMoversData = {
+      topGainers: { data: [{ id: 'sol' } as any], timestamp: 0 },
+      topLosers: { data: [{ id: 'xrp' } as any], timestamp: 0 },
+    };
 
-        act(() => {
-            handler({ status: 'error' });
-            handler({
-                status: 'success',
-                data: { topGainers: { data: [] } } // missing losers
-            });
-        });
-
-        // Defensive behavior: no partial or failed state updates
-        expect(result.current).toBeNull();
+    act(() => {
+      store.dispatch(moversReceived(incoming));
     });
 
-    it('cleans up socket listener on unmount', () => {
-        const { unmount } = renderHook(() => useTopMovers());
-
-        unmount();
-
-        // Ensures no listener leaks
-        expect(off).toHaveBeenCalledWith(
-            'cryptoTopMoversResponse',
-            expect.any(Function)
-        );
-    });
+    expect(result.current).toEqual(incoming);
+  });
 });

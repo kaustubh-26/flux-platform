@@ -2,11 +2,12 @@ import { useCryptoTopCoins } from '@/hooks/useCryptoTopCoins';
 import { useCryptoTickers } from '@/hooks/useCryptoTicker';
 import type { TopCoin } from '@/interfaces/crypto';
 import { usePriceDelta } from '@/hooks/usePriceDelta';
+import { formatUsd } from '@/utils/format';
 
 export default function LiveTickerCard() {
   const topCoins = useCryptoTopCoins();
-  const tickers = useCryptoTickers(true);
-  const isLoading = !topCoins || topCoins.length === 0;
+  const tickers = useCryptoTickers();
+  const isLoading = topCoins.length === 0;
 
 
   return (
@@ -70,7 +71,7 @@ function LiveTickerRow({
   const low = ticker ? Number(ticker.low_24_h) : null;
   const high = ticker ? Number(ticker.high_24_h) : null;
 
-  const { direction, flash } = usePriceDelta(price ?? undefined);
+  const { direction, flash } = usePriceDelta(coin.symbol);
 
   const priceFlashClass =
     flash === 'up'
@@ -113,7 +114,7 @@ function LiveTickerRow({
             {direction === 'down' && (
               <span className="text-rose-400 text-xs">▼</span>
             )}
-            {price != null ? `$${price.toFixed(4)}` : '—'}
+            {price != null ? formatUsd(price) : '—'}
           </div>
 
           {/* 24h % */}
@@ -163,7 +164,7 @@ function LiveTickerRow({
           {direction === 'down' && (
             <span className="text-rose-400 text-xs">▼</span>
           )}
-          {price != null ? `$${price.toFixed(4)}` : '—'}
+          {price != null ? formatUsd(price) : '—'}
         </span>
 
         {/* 24h % */}
@@ -189,10 +190,10 @@ function LiveTickerRow({
         {/* Low / High */}
         <div className="text-right font-mono text-xs leading-tight">
           <div className="text-rose-400">
-            {low != null ? `$${formatPrice(low)}` : '—'}
+            {low != null ? formatUsd(low) : '—'}
           </div>
           <div className="text-emerald-400">
-            {high != null ? `$${formatPrice(high)}` : '—'}
+            {high != null ? formatUsd(high) : '—'}
           </div>
         </div>
       </div>
@@ -201,12 +202,6 @@ function LiveTickerRow({
 }
 
 // Helper
-function formatPrice(value: number) {
-  if (value < 1) return value.toFixed(4);
-  return value.toFixed(2);
-}
-
-
 function formatVolume(value: number) {
   if (value >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
   if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;

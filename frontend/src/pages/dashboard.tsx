@@ -6,6 +6,9 @@ import StockCard from "../components/StockCard";
 import WeatherCard from "../components/WeatherCard";
 import { useSocket } from "../context/socketContext";
 import { useLocation } from "../hooks/useLocation";
+import { useCryptoTickerSubscription } from "../hooks/useCryptoTickerSubscription";
+import { useCryptoTopCoinsSubscription } from "../hooks/useCryptoTopCoinsSubscription";
+import { useCryptoMoversSubscription } from "../hooks/useCryptoMoversSubscription";
 import { LocalStorage } from "../utils";
 import debounce from 'lodash.debounce';
 
@@ -14,6 +17,9 @@ const DashboardPage = () => {
 
     const location = useLocation();
     const { socket, connected, setUserReady, userReady } = useSocket();
+    useCryptoTickerSubscription();
+    useCryptoTopCoinsSubscription();
+    useCryptoMoversSubscription();
     const sendRef = useRef(
         debounce((socket: any, location: any, id: string) => {
             socket.emit('userLocationUpdate', location, id);
