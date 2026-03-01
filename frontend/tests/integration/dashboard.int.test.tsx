@@ -46,10 +46,27 @@ jest.mock('@/components/CryptoCard', () => () => <div>CryptoCard</div>);
 // ---- imports AFTER mocks ----
 
 import { render, screen, act } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
 import DashboardPage from '@/pages/dashboard';
 import { useSocket } from '@/context/socketContext';
 import { useLocation } from '@/hooks/useLocation';
 import { LocalStorage } from '@/utils';
+import cryptoTickerReducer from '@/store/cryptoTickerSlice';
+import cryptoTopCoinsReducer from '@/store/cryptoTopCoinsSlice';
+
+const makeStore = () =>
+  configureStore({
+    reducer: {
+      cryptoTicker: cryptoTickerReducer,
+      cryptoTopCoins: cryptoTopCoinsReducer,
+    },
+  });
+
+const renderWithProviders = (ui: React.ReactElement) => {
+  const store = makeStore();
+  return render(<Provider store={store}>{ui}</Provider>);
+};
 
 describe('DashboardPage (integration)', () => {
   const emit = jest.fn();
@@ -80,7 +97,7 @@ describe('DashboardPage (integration)', () => {
 
   // App should block rendering until user is ready
   it('shows loading screen while user is not ready', () => {
-    render(<DashboardPage />);
+    renderWithProviders(<DashboardPage />);
 
     expect(
       screen.getByText(/Connecting to live data/i)
@@ -97,7 +114,7 @@ describe('DashboardPage (integration)', () => {
   it('uses stored userId, sends location, and marks user ready', () => {
     (LocalStorage.get as jest.Mock).mockReturnValue('stored-user-id');
 
-    render(<DashboardPage />);
+    renderWithProviders(<DashboardPage />);
 
     // Location should be sent immediately
     expect(emit).toHaveBeenCalledWith(
@@ -114,7 +131,7 @@ describe('DashboardPage (integration)', () => {
   it('requests userId, stores it, sends location, and marks user ready', () => {
     (LocalStorage.get as jest.Mock).mockReturnValue(null);
 
-    render(<DashboardPage />);
+    renderWithProviders(<DashboardPage />);
 
     // Ask backend for a new user id
     expect(emit).toHaveBeenCalledWith('getUserId');

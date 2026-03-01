@@ -17,26 +17,6 @@ jest.mock('@/hooks/useCryptoTopCoins');
 jest.mock('@/hooks/useCryptoTicker');
 jest.mock('@/hooks/usePriceDelta');
 
-jest.mock('@/socket', () => ({
-  getSocket: jest.fn(() => ({
-    on: jest.fn(),
-    off: jest.fn(),
-    emit: jest.fn(),
-    disconnect: jest.fn(),
-  })),
-  disconnectSocket: jest.fn(),
-}));
-
-jest.mock('@/socket/socketSingleton', () => ({
-  getSocket: jest.fn(() => ({
-    on: jest.fn(),
-    off: jest.fn(),
-    emit: jest.fn(),
-    disconnect: jest.fn(),
-  })),
-  disconnectSocket: jest.fn(),
-}));
-
 // --------------------
 // Hook imports (after mocks)
 // --------------------
@@ -61,7 +41,7 @@ describe('LiveTickerCard (unit)', () => {
   });
 
   it('shows loading state when top coins are not available', () => {
-    (useCryptoTopCoins as jest.Mock).mockReturnValue(null);
+    (useCryptoTopCoins as jest.Mock).mockReturnValue([]);
     (useCryptoTickers as jest.Mock).mockReturnValue({});
 
     render(<LiveTickerCard />);

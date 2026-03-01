@@ -1,127 +1,98 @@
 import { renderHook, act } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
 import { useCryptoTickers } from '@/hooks/useCryptoTicker';
-import { useSocket } from '@/context/socketContext';
+import cryptoTickerReducer, {
+  tickerReceived,
+} from '@/store/cryptoTickerSlice';
+import cryptoTopCoinsReducer from '@/store/cryptoTopCoinsSlice';
+import type { CryptoTickerData } from '@/interfaces/cryptoTicker';
+import { createElement, type ReactNode } from 'react';
 
 /**
- * Unit Test Strategy:
- *
- * - Socket context is fully mocked
- * - No real socket connection
- * - Tests validate observable behavior only
- *
+ * Unit Test:
  * We verify:
- * - subscription guards
- * - payload validation
- * - incremental state updates
- * - cleanup on unmount
+ * - Hook reads ticker map from Redux
+ * - Returns empty object when store is empty
+ * - Updates when ticker actions are dispatched
  */
 
-jest.mock('@/context/socketContext', () => ({
-  useSocket: jest.fn(),
-}));
+
+const makeStore = () =>
+  configureStore({
+    reducer: {
+      cryptoTicker: cryptoTickerReducer,
+      cryptoTopCoins: cryptoTopCoinsReducer,
+    },
+  });
+
+const makeWrapper =
+  (store: ReturnType<typeof makeStore>) =>
+  ({ children }: { children: ReactNode }) =>
+    createElement(Provider, { store }, children);
+
+const makeTicker = (
+  overrides: Partial<CryptoTickerData> = {}
+): CryptoTickerData => ({
+  type: 'ticker',
+  product_id: 'BTC-USD',
+  price: '45000',
+  volume_24_h: '0',
+  low_24_h: '0',
+  high_24_h: '0',
+  low_52_w: '0',
+  high_52_w: '0',
+  price_percent_chg_24_h: '0',
+  best_bid: '0',
+  best_ask: '0',
+  best_bid_quantity: '0',
+  best_ask_quantity: '0',
+  ...overrides,
+});
 
 describe('useCryptoTickers (unit)', () => {
-  const on = jest.fn();
-  const off = jest.fn();
+  it('returns an empty object when no tickers are in the store', () => {
+    const store = makeStore();
 
-  const mockSocket = { on, off };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('does not subscribe when inactive or prerequisites are missing', () => {
-    (useSocket as jest.Mock).mockReturnValue({
-      socket: mockSocket,
-      connected: false,
-      userReady: true,
+    const { result } = renderHook(() => useCryptoTickers(), {
+      wrapper: makeWrapper(store),
     });
 
-    renderHook(() => useCryptoTickers(true));
-
-    // Guard clause prevents any socket wiring
-    expect(on).not.toHaveBeenCalled();
-  });
-
-  it('subscribes to ticker events when active and ready', () => {
-    (useSocket as jest.Mock).mockReturnValue({
-      socket: mockSocket,
-      connected: true,
-      userReady: true,
-    });
-
-    renderHook(() => useCryptoTickers(true));
-
-    expect(on).toHaveBeenCalledWith(
-      'cryptoTickerResponse',
-      expect.any(Function)
-    );
-  });
-
-  it('adds ticker data when valid ticker payload is received', () => {
-    (useSocket as jest.Mock).mockReturnValue({
-      socket: mockSocket,
-      connected: true,
-      userReady: true,
-    });
-
-    const { result } = renderHook(() => useCryptoTickers(true));
-
-    // Extract registered handler
-    const handler = on.mock.calls[0][1];
-
-    const payload = {
-      data: {
-        data: {
-          type: 'ticker',
-          product_id: 'BTC-USD',
-          price: '45000',
-        },
-      },
-    };
-
-    act(() => {
-      handler(payload);
-    });
-
-    expect(result.current).toEqual({
-      'BTC-USD': payload.data.data,
-    });
-  });
-
-  it('ignores payloads that are not ticker events', () => {
-    (useSocket as jest.Mock).mockReturnValue({
-      socket: mockSocket,
-      connected: true,
-      userReady: true,
-    });
-
-    const { result } = renderHook(() => useCryptoTickers(true));
-    const handler = on.mock.calls[0][1];
-
-    act(() => {
-      handler({}); // invalid
-      handler({ data: { data: { type: 'snapshot' } } }); // non-ticker
-    });
-
-    // Defensive behavior: no state pollution
     expect(result.current).toEqual({});
   });
 
-  it('cleans up socket listener on unmount', () => {
-    (useSocket as jest.Mock).mockReturnValue({
-      socket: mockSocket,
-      connected: true,
-      userReady: true,
+  it('returns ticker data from the store when available', () => {
+    const store = makeStore();
+    const ticker = makeTicker({ product_id: 'ETH-USD', price: '3000' });
+
+    act(() => {
+      store.dispatch(tickerReceived(ticker));
     });
 
-    const { unmount } = renderHook(() => useCryptoTickers(true));
+    const { result } = renderHook(() => useCryptoTickers(), {
+      wrapper: makeWrapper(store),
+    });
 
-    unmount();
+    expect(result.current).toEqual({
+      'ETH-USD': ticker,
+    });
+  });
 
-    expect(off).toHaveBeenCalledWith(
-      'cryptoTickerResponse',
-      expect.any(Function)
-    );
+  it('updates when new ticker events are dispatched', () => {
+    const store = makeStore();
+
+    const { result } = renderHook(() => useCryptoTickers(), {
+      wrapper: makeWrapper(store),
+    });
+
+    const ticker = makeTicker({ product_id: 'SOL-USD', price: '180' });
+
+    act(() => {
+      store.dispatch(tickerReceived(ticker));
+    });
+
+    expect(result.current).toEqual({
+      'SOL-USD': ticker,
+    });
   });
 });

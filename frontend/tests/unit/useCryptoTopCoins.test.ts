@@ -1,109 +1,88 @@
 import { renderHook, act } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
 import { useCryptoTopCoins } from '@/hooks/useCryptoTopCoins';
-import { useSocket } from '@/context/socketContext';
+import cryptoTopCoinsReducer, {
+  topCoinsReceived,
+} from '@/store/cryptoTopCoinsSlice';
+import cryptoTickerReducer from '@/store/cryptoTickerSlice';
+import type { TopCoin } from '@/interfaces/crypto';
+import { createElement, type ReactNode } from 'react';
 
 /**
- * Unit Test Strategy:
- *
- * - Socket context is fully mocked
- * - No real socket connection or infrastructure
- * - Tests validate observable behavior only
- *
+ * Unit Test:
  * We verify:
- * - correct socket wiring
- * - initial request emission
- * - defensive payload handling
- * - cleanup on unmount
+ * - Hook reads top coins from Redux
+ * - Returns empty list when store is empty
+ * - Updates when actions are dispatched
  */
 
-jest.mock('@/context/socketContext', () => ({
-  useSocket: jest.fn(),
-}));
+const makeStore = (preloadedTopCoins?: TopCoin[]) =>
+  configureStore({
+    reducer: {
+      cryptoTopCoins: cryptoTopCoinsReducer,
+      cryptoTicker: cryptoTickerReducer,
+    },
+    preloadedState: preloadedTopCoins
+      ? {
+          cryptoTopCoins: {
+            items: preloadedTopCoins,
+            status: 'ready',
+            lastUpdated: Date.now(),
+          },
+          cryptoTicker: {
+            byProductId: {},
+            lastUpdatedById: {},
+          },
+        }
+      : undefined,
+  });
+
+const makeWrapper =
+  (store: ReturnType<typeof makeStore>) =>
+  ({ children }: { children: ReactNode }) =>
+    createElement(Provider, { store }, children);
 
 describe('useCryptoTopCoins (unit)', () => {
-  const on = jest.fn();
-  const off = jest.fn();
-  const emit = jest.fn();
-
-  const mockSocket = { on, off, emit };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('does nothing when socket is not available', () => {
-    (useSocket as jest.Mock).mockReturnValue({ socket: null });
-
-    renderHook(() => useCryptoTopCoins());
-
-    // Guard clause prevents wiring
-    expect(on).not.toHaveBeenCalled();
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it('subscribes to response event and emits initial request when socket is available', () => {
-    (useSocket as jest.Mock).mockReturnValue({ socket: mockSocket });
-
-    renderHook(() => useCryptoTopCoins());
-
-    expect(on).toHaveBeenCalledWith(
-      'cryptoTopCoinsResponse',
-      expect.any(Function)
-    );
-
-    // Initial subscribe / fetch
-    expect(emit).toHaveBeenCalledWith('cryptoTopCoinsRequest');
-  });
-
-  it('updates coins only when payload is successful and contains topCoins', () => {
-    (useSocket as jest.Mock).mockReturnValue({ socket: mockSocket });
-
-    const { result } = renderHook(() => useCryptoTopCoins());
-    const handler = on.mock.calls[0][1];
-
-    const payload = {
-      status: 'success',
-      data: {
-        topCoins: [
-          { symbol: 'BTC', rank: 1 },
-          { symbol: 'ETH', rank: 2 },
-        ],
-      },
-    };
-
-    act(() => {
-      handler(payload);
+  it('returns an empty list when no coins are in the store', () => {
+    const store = makeStore();
+    const { result } = renderHook(() => useCryptoTopCoins(), {
+      wrapper: makeWrapper(store),
     });
 
-    // Hook exposes domain data only after validation passes
-    expect(result.current).toEqual(payload.data.topCoins);
+    expect(result.current).toEqual([]);
   });
 
-  it('ignores unsuccessful or malformed payloads', () => {
-    (useSocket as jest.Mock).mockReturnValue({ socket: mockSocket });
+  it('returns top coins from the store when available', () => {
+    const mockTopCoins: TopCoin[] = [
+      { symbol: 'BTC', name: 'Bitcoin' } as TopCoin,
+      { symbol: 'ETH', name: 'Ethereum' } as TopCoin,
+    ];
 
-    const { result } = renderHook(() => useCryptoTopCoins());
-    const handler = on.mock.calls[0][1];
+    const store = makeStore(mockTopCoins);
 
-    act(() => {
-      handler({ status: 'error' });
-      handler({ status: 'success', data: {} });
+    const { result } = renderHook(() => useCryptoTopCoins(), {
+      wrapper: makeWrapper(store),
     });
 
-    // Defensive behavior: no partial state updates
-    expect(result.current).toBeNull();
+    expect(result.current).toEqual(mockTopCoins);
   });
 
-  it('cleans up socket listener on unmount', () => {
-    (useSocket as jest.Mock).mockReturnValue({ socket: mockSocket });
+  it('reacts to store updates when coins are received', () => {
+    const store = makeStore();
 
-    const { unmount } = renderHook(() => useCryptoTopCoins());
+    const { result } = renderHook(() => useCryptoTopCoins(), {
+      wrapper: makeWrapper(store),
+    });
 
-    unmount();
+    const incoming: TopCoin[] = [
+      { symbol: 'SOL', name: 'Solana' } as TopCoin,
+    ];
 
-    expect(off).toHaveBeenCalledWith(
-      'cryptoTopCoinsResponse',
-      expect.any(Function)
-    );
+    act(() => {
+      store.dispatch(topCoinsReceived(incoming));
+    });
+
+    expect(result.current).toEqual(incoming);
   });
 });
