@@ -2,6 +2,7 @@ import { useCryptoTopCoins } from '@/hooks/useCryptoTopCoins';
 import { useCryptoTickers } from '@/hooks/useCryptoTicker';
 import type { TopCoin } from '@/interfaces/crypto';
 import { usePriceDelta } from '@/hooks/usePriceDelta';
+import { Sparkline } from '@/components/Sparkline';
 import { formatUsd } from '@/utils/format';
 
 export default function LiveTickerCard() {
@@ -20,10 +21,11 @@ export default function LiveTickerCard() {
       </div>
 
       {/* Table header */}
-      <div className="hidden md:grid grid-cols-[40px_1fr_120px_90px_110px_90px] text-[11px] text-slate-400 px-5 pb-1">
+      <div className="hidden md:grid grid-cols-[40px_1fr_120px_80px_90px_110px_90px] text-[11px] text-slate-400 px-5 pb-1">
         <span>#</span>
         <span>Name</span>
         <span className="text-right">Price</span>
+        <span className="text-right">Trend</span>
         <span className="text-right">24h %</span>
         <span className="text-right">Volume</span>
         <span className="text-right">24h Low / High</span>
@@ -71,7 +73,7 @@ function LiveTickerRow({
   const low = ticker ? Number(ticker.low_24_h) : null;
   const high = ticker ? Number(ticker.high_24_h) : null;
 
-  const { direction, flash } = usePriceDelta(coin.symbol);
+  const { direction, flash, history } = usePriceDelta(coin.symbol);
 
   const priceFlashClass =
     flash === 'up'
@@ -83,7 +85,7 @@ function LiveTickerRow({
   return (
     <div
       className="
-        grid grid-cols-1 md:grid-cols-[40px_1fr_120px_90px_110px_90px]
+        grid grid-cols-1 md:grid-cols-[40px_1fr_120px_80px_90px_110px_90px]
         gap-y-1
         items-center px-2 py-2 rounded-md
         bg-black/20 hover:bg-black/30 transition text-sm
@@ -166,6 +168,11 @@ function LiveTickerRow({
           )}
           {price != null ? formatUsd(price) : '—'}
         </span>
+
+        {/* Trend sparkline */}
+        <div className="flex justify-end">
+          <Sparkline points={history} />
+        </div>
 
         {/* 24h % */}
         <span

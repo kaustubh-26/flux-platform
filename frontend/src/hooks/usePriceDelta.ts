@@ -27,5 +27,7 @@ export function usePriceDelta(productId?: string) {
       ? entry.direction
       : null;
 
-  return { direction, flash };
+  const history = entry?.history ?? [];
+
+  return { direction, flash, history };
 }

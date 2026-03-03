@@ -46,6 +46,7 @@ describe('usePriceDelta (unit)', () => {
 
     expect(result.current.direction).toBeNull();
     expect(result.current.flash).toBeNull();
+    expect(result.current.history).toEqual([]);
   });
 
   it('does not set direction on first price', () => {
@@ -63,6 +64,7 @@ describe('usePriceDelta (unit)', () => {
 
     expect(result.current.direction).toBeNull();
     expect(result.current.flash).toBeNull();
+    expect(result.current.history).toHaveLength(1);
   });
 
   it('sets direction and flash on increase', () => {
@@ -83,6 +85,7 @@ describe('usePriceDelta (unit)', () => {
 
     expect(result.current.direction).toBe('up');
     expect(result.current.flash).toBe('up');
+    expect(result.current.history).toHaveLength(2);
   });
 
   it('clears flash after timeout', () => {
@@ -108,5 +111,29 @@ describe('usePriceDelta (unit)', () => {
     });
 
     expect(result.current.flash).toBeNull();
+  });
+
+  it('caps history length to a rolling window', () => {
+    const store = makeStore();
+
+    act(() => {
+      for (let i = 0; i < 80; i += 1) {
+        store.dispatch(
+          priceDeltaUpdated({
+            productId: 'BTC-USD',
+            price: 100 + i,
+            at: i,
+          })
+        );
+      }
+    });
+
+    const { result } = renderHook(() => usePriceDelta('BTC-USD'), {
+      wrapper: makeWrapper(store),
+    });
+
+    expect(result.current.history).toHaveLength(60);
+    expect(result.current.history[0].price).toBe(120);
+    expect(result.current.history[59].price).toBe(179);
   });
 });
