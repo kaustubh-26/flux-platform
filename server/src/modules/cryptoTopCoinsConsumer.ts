@@ -46,7 +46,7 @@ export async function initCryptoTopCoinsConsumer(
 
             await cacheSet(CRYPTO_TOPCOINS_CACHE_KEY, payload, TOP_COINS_TTL);
 
-            io.to(CRYPTO_GLOBAL_ROOM).emit('topCoinsResponse', {
+            io.to(CRYPTO_GLOBAL_ROOM).emit('cryptoTopCoinsResponse', {
                 status: 'success',
                 data: {
                     topCoins: payload.topCoins,

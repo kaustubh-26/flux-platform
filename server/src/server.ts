@@ -367,9 +367,9 @@ io.on('connection', (socket: Socket) => {
             logger.debug('cryptoTopCoinsRequest::cached::::', cached)
 
             if (!cached) {
-                socket.emit('stockTopPerformersResponse', {
+                socket.emit('cryptoTopCoinsResponse', {
                     status: 'loading',
-                    message: 'Fetching latest stock data'
+                    message: 'Fetching latest crypto top coins'
                 });
                 return;
             }

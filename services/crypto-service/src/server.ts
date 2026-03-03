@@ -7,7 +7,7 @@ import { getTopGainers } from "./modules/topGainers";
 import { getTopLosers } from "./modules/topLosers";
 import { cacheGet, shutdownCache } from './cache';
 import { Consumer, Kafka, logLevel, Producer } from 'kafkajs';
-import { startCoinbaseMarketsTicker, shutdownCoinbaseMarketsTicker, MARKETS_TOPCOINS_CACHE_KEY } from "./modules/topMarketsTicker";
+import { startCoinbaseMarketsTicker, shutdownCoinbaseMarketsTicker, MARKETS_TOPCOINS_CACHE_KEY, refreshCoinbaseMarketsTicker } from "./modules/topMarketsTicker";
 import { TopCoin } from './interfaces/topCoins';
 import { KafkaHealth } from './kafkaHealth';
 import { initTopMoversConsumer } from './modules/topMoversConsumer';
@@ -227,7 +227,18 @@ async function publishTopCoins() {
         return;
     }
 
-    const topCoins = await cacheGet<TopCoin[]>(MARKETS_TOPCOINS_CACHE_KEY);
+    let topCoins = await cacheGet<TopCoin[]>(MARKETS_TOPCOINS_CACHE_KEY);
+
+    if (!topCoins?.length) {
+        logger.warn('Top coins cache empty, refreshing before publish');
+        await refreshCoinbaseMarketsTicker({
+            limit: 10,
+            channel: "ticker",
+            producer,
+            kafkaHealth
+        });
+        topCoins = await cacheGet<TopCoin[]>(MARKETS_TOPCOINS_CACHE_KEY);
+    }
 
     if (!topCoins?.length) return;
 

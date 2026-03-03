@@ -127,7 +127,7 @@ describe('initCryptoTopCoinsConsumer (integration)', () => {
      * - emitted event and payload match expected structure
      */
     expect(io.to).toHaveBeenCalledWith(CRYPTO_GLOBAL_ROOM);
-    expect(emit).toHaveBeenCalledWith('topCoinsResponse', {
+    expect(emit).toHaveBeenCalledWith('cryptoTopCoinsResponse', {
       status: 'success',
       data: {
         topCoins: payload.topCoins,

@@ -85,7 +85,7 @@ describe('initCryptoTopCoinsConsumer (unit)', () => {
     );
 
     expect(io.to).toHaveBeenCalledWith(CRYPTO_GLOBAL_ROOM);
-    expect(io.emit).toHaveBeenCalledWith('topCoinsResponse', {
+    expect(io.emit).toHaveBeenCalledWith('cryptoTopCoinsResponse', {
       status: 'success',
       data: {
         topCoins: payload.topCoins,
