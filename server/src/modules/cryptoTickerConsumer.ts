@@ -4,10 +4,11 @@ import pino from 'pino';
 import { cacheSet } from '../cache';
 import { CRYPTO_TICKER_CACHE_KEY, CRYPTO_GLOBAL_ROOM } from '../constants/crypto';
 
-const TICKER_TTL = 5; // seconds (near-realtime)
+const TICKER_TTL = 300; // seconds (short-lived snapshot for UI hydration)
 
 const LOG_INTERVAL_MS = 30_000; // 30 seconds
 let lastLogTime = 0;
+const tickerSnapshot: Record<string, any> = {};
 
 /**
  * Kafka → Socket.IO consumer for crypto ticker price updates
@@ -57,8 +58,12 @@ export async function initCryptoTickerConsumer(
                 return;
             }
 
-            // Cache latest ticker snapshot (short TTL for realtime feel)
-            await cacheSet(CRYPTO_TICKER_CACHE_KEY, payload, TICKER_TTL);
+            const productId = payload?.data?.product_id;
+            if (productId) {
+                tickerSnapshot[productId] = payload;
+                // Cache last-known tickers for UI hydration
+                await cacheSet(CRYPTO_TICKER_CACHE_KEY, tickerSnapshot, TICKER_TTL);
+            }
 
             // Emit to all connected clients
             io.to(CRYPTO_GLOBAL_ROOM).emit('cryptoTickerResponse', {

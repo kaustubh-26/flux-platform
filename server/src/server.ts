@@ -308,6 +308,18 @@ io.on('connection', (socket: Socket) => {
             });
         }
 
+        // Hydrate crypto ticker snapshot for fast initial render
+        const cachedTickers = await cacheGet<Record<string, any>>(CRYPTO_TICKER_CACHE_KEY);
+        if (cachedTickers) {
+            Object.values(cachedTickers).forEach((tickerPayload) => {
+                socket.emit('cryptoTickerResponse', {
+                    status: 'success',
+                    data: tickerPayload,
+                    error: null,
+                });
+            });
+        }
+
         logger.debug({
             key: socket.id,
             value: JSON.stringify({

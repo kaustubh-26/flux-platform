@@ -69,8 +69,13 @@ describe('initCryptoTickerConsumer (unit)', () => {
     await initCryptoTickerConsumer(kafka, io, logger);
 
     const payload = {
-      BTC: { price: 43000 },
-      ETH: { price: 2400 },
+      source: 'coinbase',
+      ts: Date.now(),
+      data: {
+        type: 'ticker',
+        product_id: 'BTC-USD',
+        price: '43000',
+      },
     };
 
     await eachMessage({
@@ -81,8 +86,10 @@ describe('initCryptoTickerConsumer (unit)', () => {
 
     expect(cacheSet).toHaveBeenCalledWith(
       CRYPTO_TICKER_CACHE_KEY,
-      payload,
-      5
+      expect.objectContaining({
+        'BTC-USD': payload,
+      }),
+      300
     );
 
     expect(io.to).toHaveBeenCalledWith(CRYPTO_GLOBAL_ROOM);
