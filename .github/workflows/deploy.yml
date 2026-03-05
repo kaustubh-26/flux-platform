@@ -1,4 +1,4 @@
-name: Deploy Flux Platform on AWS
+name: Deploy
 
 on:
   workflow_run:

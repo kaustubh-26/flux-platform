@@ -6,7 +6,10 @@
 
 ![Build](https://github.com/kaustubh-26/flux-platform/actions/workflows/ci.yml/badge.svg)
 ![Tests](https://github.com/kaustubh-26/flux-platform/actions/workflows/tests.yml/badge.svg)
+![Deploy](https://github.com/kaustubh-26/flux-platform/actions/workflows/deploy.yml/badge.svg)
 ![License](https://img.shields.io/github/license/kaustubh-26/flux-platform)
+
+**Live Demo:** https://flux.kaustubhalandkar.workers.dev
 
 A **production-style, event-driven real-time data platform** showcasing modern **Kafka-based streaming**, **WebSocket fan-out**, and a clean **Backend-for-Frontend (BFF)** architecture.
 

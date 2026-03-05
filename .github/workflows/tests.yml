@@ -3,8 +3,20 @@ name: Tests
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - "README.md"
+      - "LICENSE"
+      - ".github/**"
+      - "docs/**"
+      - "**/*.md"
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - "README.md"
+      - "LICENSE"
+      - ".github/**"
+      - "docs/**"
+      - "**/*.md"
 
 jobs:
   unit-tests:
