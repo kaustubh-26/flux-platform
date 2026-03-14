@@ -2,6 +2,17 @@ import { io, Socket } from "socket.io-client";
 
 let socket: Socket | null = null;
 
+const GUEST_ID_KEY = "flux_guest_id";
+
+function getOrCreateGuestId(): string {
+    const existing = localStorage.getItem(GUEST_ID_KEY);
+    if (existing) return existing;
+
+    const newId = crypto.randomUUID();
+    localStorage.setItem(GUEST_ID_KEY, newId);
+    return newId;
+}
+
 export const getSocket = (): Socket => {
     if (!socket) {
         const serverUrl = window.location.hostname.includes('.dev')
@@ -19,6 +30,10 @@ export const getSocket = (): Socket => {
             reconnectionDelay: 1000,        // start at 1s
             reconnectionDelayMax: 5000,     // cap at 5s
             timeout: 20000,                 // connection timeout
+
+            auth: {
+                guestId: getOrCreateGuestId(),
+            },
         });
     }
     return socket;

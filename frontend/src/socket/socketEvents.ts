@@ -1,6 +1,15 @@
 import { Socket } from "socket.io-client";
 
-export const registerCoreSocketEvents = (socket: Socket) => {
+type SessionInitPayload = {
+  userId: string;
+  userType: "guest" | "authenticated";
+};
+
+type CoreSocketEventHandlers = {
+  onSessionInit?: (session: SessionInitPayload) => void;
+};
+
+export const registerCoreSocketEvents = (socket: Socket, handlers?: CoreSocketEventHandlers) => {
   socket.on("connect", () => {
     console.log("Connected:", socket.id);
   });
@@ -11,6 +20,11 @@ export const registerCoreSocketEvents = (socket: Socket) => {
 
   socket.on("connect_error", (error) => {
     console.error("Connection error:", error.message);
+  });
+
+  socket.on("session:init", (session: SessionInitPayload) => {
+    console.log("Resolved session:", session);
+    handlers?.onSessionInit?.(session);
   });
 
   socket.io.on("reconnect_attempt", (attempt) => {
@@ -30,6 +44,7 @@ export const unregisterCoreSocketEvents = (socket: Socket) => {
   socket.off("connect");
   socket.off("disconnect");
   socket.off("connect_error");
+  socket.off("session:init");
 
   socket.io.off("reconnect_attempt");
   socket.io.off("reconnect");

@@ -56,6 +56,43 @@ const logger = pino({
 });
 logger.info(env.NODE_ENV, logger.level);
 
+// -------------------------------------------------
+// Socket identity typing
+// -------------------------------------------------
+type SocketUserType = 'guest';
+
+interface SocketUser {
+    id: string;
+    type: SocketUserType;
+    ip: string;
+}
+
+declare module 'socket.io' {
+    interface SocketData {
+        user: SocketUser;
+    }
+}
+
+// -------------------------------------------------
+// Helpers
+// -------------------------------------------------
+function resolveClientIp(socket: Socket): string {
+    const forwarded = socket.handshake.headers['x-forwarded-for'];
+    return forwarded?.toString().split(',')[0].trim() || socket.handshake.address;
+}
+
+function resolveGuestId(socket: Socket): string {
+    const rawGuestId = socket.handshake.auth?.guestId;
+
+    if (typeof rawGuestId === 'string' &&
+        rawGuestId.trim().length > 0 &&
+        rawGuestId.trim().length <= 128
+    ) {
+        return rawGuestId.trim();
+    }
+
+    return uuidv4();
+}
 
 // -------------------------------------------------
 // Kafka connection
@@ -149,6 +186,9 @@ async function initProducer() {
     }
 }
 
+// -------------------------------------------------
+// Kafka command helpers
+// -------------------------------------------------
 async function sendCryptoMoversRefresh(producer: Producer, logger: pino.Logger) {
     const payload = {
         requestedBy: 'bff',
@@ -253,25 +293,63 @@ const io = new Server(server, {
     }
 });
 
+// -------------------------------------------------
+// Identity middleware
+// -------------------------------------------------
+io.use((socket, next) => {
+    try {
+        const ip = resolveClientIp(socket);
+        const guestId = resolveGuestId(socket);
+
+        socket.data.user = {
+            id: guestId,
+            type: 'guest',
+            ip,
+        };
+
+        logger.debug(
+            {
+                socketId: socket.id,
+                userId: socket.data.user.id,
+                userType: socket.data.user.type,
+                ip,
+            },
+            'Socket identity resolved during connection'
+        );
+
+        next();
+    } catch (err) {
+        logger.error({ err, socketId: socket.id }, 'Failed to resolve socket identity');
+        next(new Error('Unable to initialize socket session'));
+    }
+});
+
 
 // -------------------------------------------------
 // Socket event handlers
 // -------------------------------------------------
 io.on('connection', (socket: Socket) => {
-    logger.info({ socketId: socket.id }, 'Client connected');
+    logger.info(
+        {
+            socketId: socket.id,
+            userId: socket.data.user.id,
+            userType: socket.data.user.type,
+            ip: socket.data.user.ip,
+        },
+        'Client connected'
+    );
 
-    socket.on('getUserId', () => {
-        const forwarded = socket.handshake.headers["x-forwarded-for"];
-        const ip = forwarded?.toString().split(",")[0].trim() || socket.handshake.address;
-
-        logger.debug({ socketId: socket.id, ip }, 'Client IP resolved');
-
-        const uniqueId = uuidv4();
-        socket.emit('userUniqueId', uniqueId);
+    // Bootstrap event so frontend can read the resolved identity
+    // without calling getUserId.
+    socket.emit('session:init', {
+        userId: socket.data.user.id,
+        userType: socket.data.user.type,
     });
 
     // User joining event
-    socket.on('userLocationUpdate', async (locationData: Location, userId: string) => {
+    socket.on('userLocationUpdate', async (locationData: Location) => {
+        const userId = socket.data.user.id;
+
         logger.debug({ socketId: socket.id, locationData, userId }, 'Location received');
 
         const cityName = locationData.city || 'Delhi';
@@ -332,7 +410,7 @@ io.on('connection', (socket: Socket) => {
 
         const payload = {
             event: 'locationUpdate',
-            userId,
+            userId: userId,
             data: locationData,
             timestamp: new Date().toISOString()
         };
@@ -402,7 +480,7 @@ io.on('connection', (socket: Socket) => {
     });
 
     // Stock events
-    socket.on('stockTopPerformersRequest', async (userId: string) => {
+    socket.on('stockTopPerformersRequest', async () => {
         try {
             const cached = await cacheGet<any>(STOCK_TOP_PERFORMERS_CACHE_KEY);
             logger.debug('stockTopPerformersRequest::cached:::: ', cached, new Date().toLocaleString())
@@ -458,7 +536,15 @@ io.on('connection', (socket: Socket) => {
     });
 
     socket.on('disconnect', (reason) => {
-        logger.info({ socketId: socket.id, reason }, 'Client disconnected');
+        logger.info(
+            {
+                socketId: socket.id,
+                userId: socket.data.user.id,
+                userType: socket.data.user.type,
+                reason,
+            },
+            'Client disconnected'
+        );
     });
 });
 

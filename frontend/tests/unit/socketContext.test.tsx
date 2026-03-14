@@ -68,7 +68,12 @@ describe('SocketProvider (unit)', () => {
     );
 
     expect(getSocket).toHaveBeenCalled();
-    expect(registerCoreSocketEvents).toHaveBeenCalledWith(socket);
+    expect(registerCoreSocketEvents).toHaveBeenCalledWith(
+      socket,
+      expect.objectContaining({
+        onSessionInit: expect.any(Function),
+      })
+    );
   });
 
   it('sets connected=true on socket connect', () => {

@@ -17,7 +17,7 @@ const SocketContext = createContext<SocketContextType>({
   socket: null,
   connected: false,
   userReady: false,
-  setUserReady: () => {},
+  setUserReady: () => { },
 });
 
 // Custom hook to access the socket from context
@@ -45,7 +45,12 @@ const SocketProvider = ({ children }: { children: ReactNode }) => {
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
 
-    registerCoreSocketEvents(socket);
+    registerCoreSocketEvents(socket, {
+      onSessionInit: (session) => {
+        console.log("Session ready in provider:", session);
+        setUserReady(true);
+      },
+    });
 
     return () => {
       // IMPORTANT:
