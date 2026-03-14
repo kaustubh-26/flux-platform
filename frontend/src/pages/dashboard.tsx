@@ -9,52 +9,32 @@ import { useLocation } from "../hooks/useLocation";
 import { useCryptoTickerSubscription } from "../hooks/useCryptoTickerSubscription";
 import { useCryptoTopCoinsSubscription } from "../hooks/useCryptoTopCoinsSubscription";
 import { useCryptoMoversSubscription } from "../hooks/useCryptoMoversSubscription";
-import { LocalStorage } from "../utils";
 import debounce from 'lodash.debounce';
 
 
 const DashboardPage = () => {
 
     const location = useLocation();
-    const { socket, connected, setUserReady, userReady } = useSocket();
+    const { socket, connected, userReady } = useSocket();
     useCryptoTickerSubscription();
     useCryptoTopCoinsSubscription();
     useCryptoMoversSubscription();
     const sendRef = useRef(
-        debounce((socket: any, location: any, id: string) => {
-            socket.emit('userLocationUpdate', location, id);
+        debounce((socket: any, location: any) => {
+            socket.emit('userLocationUpdate', location);
         }, 1000) // debounce location updates before emitting
     );
 
     useEffect(() => {
         // Check if socket is available
-        if (!socket || !connected || !location) return;
+        if (!socket || !connected || !location || !userReady) return;
 
-        const storedId = LocalStorage.get('userid');
-
-        if (storedId) {
-            sendRef.current(socket, location, storedId);
-            setUserReady(true);
-        } else {
-            socket.emit('getUserId');
-        }
-
-        const handler = (id: string) => {
-            const currentId = LocalStorage.get('userid');
-            if (!currentId) {
-                LocalStorage.set('userid', id);
-                sendRef.current(socket, location, id);
-                setUserReady(true);
-            }
-        }
-
-        socket.on('userUniqueId', handler);
+        sendRef.current(socket, location);
 
         return () => {
-            socket.off('userUniqueId', handler);
             sendRef.current.cancel(); // prevent debounced emits after unmount
         };
-    }, [socket, connected, location]);
+    }, [socket, connected, location, userReady]);
 
     if (!userReady) {
         return (
