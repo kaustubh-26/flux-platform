@@ -2,6 +2,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { Request, Response } from 'express';
 import { env } from './config/env';
+import { isDatabaseConnected } from './config/db';
 
 const app = express();
 
@@ -22,7 +23,8 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'ok',
     service: 'auth-service',
-    environment: env.NODE_ENV
+    environment: env.NODE_ENV,
+    database: isDatabaseConnected() ? 'connected' : 'disconnected'
   });
 });
 
