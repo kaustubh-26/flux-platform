@@ -1,8 +1,10 @@
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { Request, Response } from 'express';
+import passport from 'passport';
 import { env } from './config/env';
 import { isDatabaseConnected } from './config/db';
+import authRoutes from './routes/auth.routes';
 
 const app = express();
 
@@ -18,6 +20,9 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(passport.initialize());
+
+app.use('/auth', authRoutes);
 
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({

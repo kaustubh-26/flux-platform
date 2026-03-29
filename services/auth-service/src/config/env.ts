@@ -11,7 +11,7 @@ const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
 
-  CLIENT_ORIGIN: z.string().url().default('http://localhost:3000'),
+  CLIENT_ORIGIN: z.string().url().default('http://localhost'),
 
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_EXPIRES_IN: z.string().default('1d'),
@@ -24,12 +24,12 @@ const envSchema = z.object({
   CLIENT_SUCCESS_REDIRECT: z
     .string()
     .url()
-    .default('http://localhost:3000/auth/success'),
+    .default('http://localhost/auth/success'),
 
   CLIENT_FAILURE_REDIRECT: z
     .string()
     .url()
-    .default('http://localhost:3000/auth/failure'),
+    .default('http://localhost/auth/failure'),
 
   MONGODB_URI: z.string().optional().default(''),
   MONGODB_DB_NAME: z.string().default('flux_auth'),
@@ -39,19 +39,22 @@ const envSchema = z.object({
   GOOGLE_CALLBACK_URL: z
     .string()
     .url()
-    .default('http://localhost:4001/auth/google/callback'),
+    .default('http://localhost/auth/google/callback'),
 
   GITHUB_CLIENT_ID: z.string().optional().default(''),
   GITHUB_CLIENT_SECRET: z.string().optional().default(''),
   GITHUB_CALLBACK_URL: z
     .string()
     .url()
-    .default('http://localhost:4001/auth/github/callback')
+    .default('http://localhost/auth/github/callback')
 });
 
 const parsedEnv = envSchema.parse(process.env);
 
+const isProd = parsedEnv.NODE_ENV === 'production';
+
 export const env = {
   ...parsedEnv,
-  COOKIE_SECURE: parsedEnv.COOKIE_SECURE === 'true'
-};
+  COOKIE_SECURE: isProd,
+  COOKIE_SAME_SITE: isProd ? 'none' : 'lax'
+} as const;
