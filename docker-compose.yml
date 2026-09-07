@@ -1,6 +1,6 @@
 secrets:
   valkey_pass:
-    file: ./secrets/valkey_pass.txt # plain‑text file containing the password
+    file: ./secrets/valkey_pass.txt
   weather_api_key:
     file: ./secrets/weather_api_key.txt
   newsdata_api_key:
@@ -9,67 +9,40 @@ secrets:
     file: ./secrets/finnhub_api_key.txt
 
 services:
-  # Kafka setup
+  # -------------------------------------------------
+  # Kafka (KRaft mode, single node — no Zookeeper needed)
+  # Custom-built on eclipse-temurin:17-jre-jammy (arm/v7 compatible).
+  # Build context is ./kafka — see Dockerfile/entrypoint.sh/server.properties there.
+  # -------------------------------------------------
   kafka:
-    image: apache/kafka:3.8.0
+    build:
+      context: ./kafka
+      dockerfile: Dockerfile
     container_name: kafka
     ports:
       - "9092:9092"
-      - "9093:9093"
+      - "9094:9094"
     environment:
-      # KRaft mode (no Zookeeper)
-      KAFKA_PROCESS_ROLES: "broker,controller"
-      KAFKA_NODE_ID: 1
-      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
-      CLUSTER_ID: 'PYN_mQZxRMC0xTX0hu8_aA'
-
-      # Listeners
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-
-      # Basic broker config
-      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-
-      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
-      KAFKA_LOG4J_LOGGERS: 'kafka.cluster.Partition=WARN,kafka.log.UnifiedLog=WARN,kafka.coordinator.group=WARN'
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-      KAFKA_NUM_PARTITIONS: 1
-
-      # Reduce log retention (disk safe)
-      KAFKA_LOG_RETENTION_HOURS: 24
-      KAFKA_LOG_SEGMENT_BYTES: 134217728  # 128MB
-
-      # -----------------------------
-      # MEMORY OPTIMIZATION
-      # -----------------------------
-      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
-
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-
+      # Critical on a 1GB node: Kafka's default heap is 1GB on its own.
+      KAFKA_HEAP_OPTS: "-Xms160m -Xmx160m"
+      # The node's LAN IP — this is what other machines on your network
+      # will connect to on port 9094.
+      KAFKA_EXTERNAL_HOST: ${KAFKA_EXTERNAL_HOST:-192.168.1.109}
+    mem_limit: 256m
+    memswap_limit: 256m
     volumes:
       - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
 
-  # Kafka UI for debugging
-  # kafka-ui:
-  #   image: provectuslabs/kafka-ui:latest
-  #   ports:
-  #     - "8080:8080"
-  #   environment:
-  #     KAFKA_CLUSTERS_0_NAME: local
-  #     KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.1.102:9092
-  #   depends_on:
-  #     - kafka
-
-  # Valkey 7.2.8 service
+  # -------------------------------------------------
+  # Valkey Caching Layer
+  # -------------------------------------------------
   valkey:
     image: valkey/valkey:7.2.8
     container_name: valkey
@@ -78,30 +51,34 @@ services:
     volumes:
       - valkey-data:/data
     restart: unless-stopped
+    mem_limit: 64m
     secrets:
       - valkey_pass
     command: >
-      sh -c "valkey-server --requirepass \"$$(cat /run/secrets/valkey_pass)\" --appendonly yes --appendfilename appendonly.aof --appendfsync everysec --no-appendfsync-on-rewrite yes --save 900 1 --save 300 10 --save 60 10000 --maxmemory 128mb --maxmemory-policy allkeys-lru --notify-keyspace-events Ex --lazyfree-lazy-eviction yes --lazyfree-lazy-expire yes --lazyfree-lazy-server-del yes"
+      sh -c "valkey-server --requirepass \"$$(cat /run/secrets/valkey_pass)\" --appendonly yes --appendfilename appendonly.aof --appendfsync everysec --no-appendfsync-on-rewrite yes --save 900 1 --save 300 10 --save 60 10000 --maxmemory 48mb --maxmemory-policy allkeys-lru --notify-keyspace-events Ex --lazyfree-lazy-eviction yes --lazyfree-lazy-expire yes --lazyfree-lazy-server-del yes"
 
   # -------------------------------------------------
-  # Weather Service
+  # Application Microservices
   # -------------------------------------------------
   weather-service:
-    build:
-      context: .
-      dockerfile: services/weather-service/Dockerfile
+    image: local/weather-service:latest
+    pull_policy: never
     container_name: weather-service
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "2m"
+        max-file: "2"
     depends_on:
-      - kafka
-      - valkey
+      kafka:
+        condition: service_healthy
+      valkey:
+        condition: service_started
     restart: unless-stopped
+    mem_limit: 64m
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=48"
       KAFKA_BROKER_ADDRESS: kafka:9092
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
@@ -111,25 +88,25 @@ services:
       - valkey_pass
       - weather_api_key
 
-  # -------------------------------------------------
-  # Crypto Service
-  # -------------------------------------------------
   crypto-service:
-    build:
-      context: .
-      dockerfile: services/crypto-service/Dockerfile
+    image: local/crypto-service:latest
+    pull_policy: never
     container_name: crypto-service
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "2m"
+        max-file: "2"
     depends_on:
-      - kafka
-      - valkey
+      kafka:
+        condition: service_healthy
+      valkey:
+        condition: service_started
     restart: unless-stopped
+    mem_limit: 64m
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=48"
       KAFKA_BROKER_ADDRESS: kafka:9092
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
@@ -138,25 +115,25 @@ services:
     secrets:
       - valkey_pass
 
-  # -------------------------------------------------
-  # Stock Service
-  # -------------------------------------------------
   stock-service:
-    build:
-      context: .
-      dockerfile: services/stock-service/Dockerfile
+    image: local/stock-service:latest
+    pull_policy: never
     container_name: stock-service
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "2m"
+        max-file: "2"
     depends_on:
-      - kafka
-      - valkey
+      kafka:
+        condition: service_healthy
+      valkey:
+        condition: service_started
     restart: unless-stopped
+    mem_limit: 64m
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=48"
       KAFKA_BROKER_ADDRESS: kafka:9092
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
@@ -166,25 +143,25 @@ services:
       - valkey_pass
       - finnhub_api_key
 
-  # -------------------------------------------------
-  # News Service
-  # -------------------------------------------------
   news-service:
-    build:
-      context: .
-      dockerfile: services/news-service/Dockerfile
+    image: local/news-service:latest
+    pull_policy: never
     container_name: news-service
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "2m"
+        max-file: "2"
     depends_on:
-      - kafka
-      - valkey
+      kafka:
+        condition: service_healthy
+      valkey:
+        condition: service_started
     restart: unless-stopped
+    mem_limit: 64m
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=48"
       KAFKA_BROKER_ADDRESS: kafka:9092
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
@@ -194,46 +171,53 @@ services:
       - valkey_pass
       - newsdata_api_key
 
+  
   # -------------------------------------------------
   # Auth Service
   # -------------------------------------------------
   auth:
-    build:
-      context: .
-      dockerfile: services/auth-service/Dockerfile
+    image: local/auth-service:latest
+    pull_policy: never
     container_name: auth
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "2m"
+        max-file: "2"
     env_file:
       - ./services/auth-service/.env
     restart: unless-stopped
 
   # -------------------------------------------------
-  # Server / BFF
+  # Server Engine / Gateway BFF
   # -------------------------------------------------
   server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
+    image: local/server:latest
+    pull_policy: never
     container_name: server
+    mem_limit: 128m
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "5m"
+        max-file: "2"
     depends_on:
-      - kafka
-      - valkey
-      - weather-service
-      - crypto-service
-      - stock-service
-      - news-service
+      kafka:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+      weather-service:
+        condition: service_started
+      crypto-service:
+        condition: service_started
+      stock-service:
+        condition: service_started
+      news-service:
+        condition: service_started
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=96"
       KAFKA_BROKER_ADDRESS: kafka:9092
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
@@ -244,21 +228,21 @@ services:
       - valkey_pass
 
   # -------------------------------------------------
-  # Frontend (React + Vite)
+  # Web Frontend & Reverse Proxy
   # -------------------------------------------------
   frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
+    image: local/frontend:latest
+    pull_policy: never
     container_name: frontend
+    mem_limit: 32m
     depends_on:
       - server
     restart: unless-stopped
 
-  # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
     container_name: nginx-proxy
+    mem_limit: 16m
     ports:
       - "80:80"
     volumes:
@@ -266,56 +250,8 @@ services:
     depends_on:
       - frontend
       - server
-      - auth
     restart: unless-stopped
-
-  # -------------------------------------------------
-  # Loki (Log Storage)
-  # -------------------------------------------------
-  loki:
-    image: grafana/loki:2.9.0
-    container_name: loki
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./loki-config.yaml:/etc/loki/local-config.yaml
-      - loki-data:/loki
-    command: -config.file=/etc/loki/local-config.yaml
-    restart: unless-stopped
-
-  # -------------------------------------------------
-  # Promtail (Log Shipper)
-  # -------------------------------------------------
-  promtail:
-    image: grafana/promtail:2.9.0
-    container_name: promtail
-    volumes:
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./promtail-config.yaml:/etc/promtail/config.yml
-    command: -config.file=/etc/promtail/config.yml
-    depends_on:
-      - loki
-    restart: unless-stopped
-
-  # -------------------------------------------------
-  # Grafana (Dashboard)
-  # -------------------------------------------------
-  grafana:
-    image: grafana/grafana:10.2.0
-    container_name: grafana
-    ports:
-      - "3005:3000"
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning
-    depends_on:
-      - loki
-    restart: unless-stopped
-
 
 volumes:
   kafka-data:
   valkey-data:
-  loki-data:
-  grafana-data:

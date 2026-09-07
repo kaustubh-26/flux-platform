@@ -1,29 +1,14 @@
 # -------------------------------
-# Build stage
+# Build stage (Simulated - No slow emulation running)
 # -------------------------------
-FROM node:22.17.1-alpine AS builder
-
-WORKDIR /app
-
-# Root manifests (workspace)
-COPY package.json package-lock.json ./
-
-# Frontend workspace manifest
-COPY frontend/package.json frontend/
-
-# Install deps (dev deps needed for build)
-RUN npm ci --workspaces --include-workspace-root=false
-
-# Copy source
-COPY frontend frontend
-
-# Build Vite app
+FROM alpine AS builder
 WORKDIR /app/frontend
-RUN npm run build
 
+# Simply receive the already compiled static files from your host machine
+COPY frontend/dist ./dist
 
 # -------------------------------
-# Runtime stage (Nginx)
+# Runtime stage (Nginx Secure Non-Root Pattern)
 # -------------------------------
 FROM nginx:1.27-alpine
 
@@ -33,8 +18,9 @@ RUN rm /etc/nginx/conf.d/default.conf
 # Custom nginx config
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Copy built static files
+# Copy built static files from our simulated builder stage
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
+
