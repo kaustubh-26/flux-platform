@@ -20,6 +20,7 @@ const config: Config = {
     '<rootDir>/tests/**/*.test.ts',
     '<rootDir>/tests/**/*.int.test.ts'
   ],
+  setupFiles: ['<rootDir>/tests/setup.ts'],
   // Faster & predictable paths
   clearMocks: true,
 
