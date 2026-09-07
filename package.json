@@ -16,7 +16,8 @@
     "test:weather": "npm run test --workspace weather-service",
     "test:stock": "npm run test --workspace stock-service",
     "test:news": "npm run test --workspace news-service",
-    "test:crypto": "npm run test --workspace crypto-service"
+    "test:crypto": "npm run test --workspace crypto-service",
+    "test:auth": "npm run test --workspace auth-service"
   },
   "description": "An event-driven real-time data platform using Kafka, WebSockets, and a Backend-for-Frontend architecture",
   "author": "Kaustubh Alandkar",
