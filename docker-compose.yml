@@ -252,6 +252,27 @@ services:
       - server
     restart: unless-stopped
 
+  # -------------------------------------------------
+  # Logging Shipper (Promtail -> Grafana Cloud)
+  # -------------------------------------------------
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: promtail
+    mem_limit: 48m
+    memswap_limit: 64m
+    restart: unless-stopped
+    environment:
+      - GRAFANA_LOKI_USER=${GRAFANA_LOKI_USER}
+      - GRAFANA_LOKI_TOKEN=${GRAFANA_LOKI_TOKEN}
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail-positions:/run/promtail
+    command: -config.file=/etc/promtail/config.yml -config.expand-env=true
+
+
 volumes:
   kafka-data:
   valkey-data:
+  promtail-positions:
