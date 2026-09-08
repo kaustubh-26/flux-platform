@@ -117,6 +117,13 @@ let stocksConsumer: Consumer;
 
 let didInitialRefresh = false;
 
+const handleCrash = () => {
+    if (!shuttingDown && kafkaReady) {
+        logger.warn('A Kafka consumer crashed. Triggering auto-recovery...');
+        kafkaReady = false; // This triggers kafkaRecoveryLoop() to reconnect
+    }
+};
+
 // Helper to (re)connect the producer with retry logic
 async function initProducer() {
     if (shuttingDown) {
@@ -136,12 +143,12 @@ async function initProducer() {
             if (newsConsumer) await newsConsumer.disconnect();
             if (stocksConsumer) await stocksConsumer.disconnect();
 
-            weatherConsumer = await initWeatherConsumer(kafka, io, logger);
-            cryptoTopMoversConsumer = await initCryptoTopMoversConsumer(kafka, io, logger);
-            cryptoTopCoinsConsumer = await initCryptoTopCoinsConsumer(kafka, io, logger);
-            cryptoTickerConsumer = await initCryptoTickerConsumer(kafka, io, logger);
-            newsConsumer = await initNewsConsumer(kafka, io, logger);
-            stocksConsumer = await initStockTopPerformersConsumer(kafka, io, logger);
+            weatherConsumer = await initWeatherConsumer(kafka, io, logger, undefined, handleCrash);
+            cryptoTopMoversConsumer = await initCryptoTopMoversConsumer(kafka, io, logger, undefined, handleCrash);
+            cryptoTopCoinsConsumer = await initCryptoTopCoinsConsumer(kafka, io, logger, undefined, handleCrash);
+            cryptoTickerConsumer = await initCryptoTickerConsumer(kafka, io, logger, undefined, handleCrash);
+            newsConsumer = await initNewsConsumer(kafka, io, logger, undefined, handleCrash);
+            stocksConsumer = await initStockTopPerformersConsumer(kafka, io, logger, undefined, handleCrash);
 
 
             kafkaReady = true;
