@@ -79,10 +79,10 @@ The frontend uses a **singleton Socket.IO client** configured for same‑origin 
 
 ### User Readiness Flow
 
-1. Socket connects
-2. Client resolves user location
-3. Client receives or generates a unique user ID
-4. `userLocationUpdate` is emitted
+1. Client resolves or generates a persistent `guestId` (`localStorage` / `flux_guest_id`)
+2. Socket connects with `auth: { guestId }`
+3. Server resolves identity via middleware and acknowledges with `session:init`
+4. Client resolves user location and emits `userLocationUpdate`
 5. UI becomes `userReady`
 6. Data subscriptions begin
 
@@ -105,6 +105,7 @@ frontend/
 │   ├── interfaces/         # TypeScript contracts for socket payloads
 │   ├── pages/              # Pages (Dashboard)
 │   ├── socket/             # Socket singleton & core event handlers
+│   ├── store/              # Redux Toolkit store and slices (crypto streaming)
 │   ├── utils/              # LocalStorage, helpers
 │   │
 │   ├── App.tsx
@@ -155,8 +156,8 @@ Example categories:
 
 Hooks never:
 
-* Mutate global state
-* Cache data manually
+* Mutate ad-hoc unmanaged state
+* Cache data manually on disk
 * Retry network calls
 
 ---

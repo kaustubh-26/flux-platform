@@ -89,7 +89,7 @@ describe('sendLocationIfChanged (Kafka integration)', () => {
     await consumer.connect();
     await consumer.subscribe({
       topic: 'weather.service.command.fetch',
-      fromBeginning: false,
+      fromBeginning: true,
     });
 
     /**
@@ -103,7 +103,14 @@ describe('sendLocationIfChanged (Kafka integration)', () => {
     await consumer.run({
       eachMessage: async ({ message }: EachMessagePayload) => {
         if (message.value) {
-          received.push(message.value.toString());
+          const val = message.value.toString();
+          try {
+            if (JSON.parse(val).userId === payload.userId) {
+              received.push(val);
+            }
+          } catch {
+            /* ignore invalid JSON or messages from other tests */
+          }
         }
       },
     });
@@ -133,7 +140,9 @@ describe('sendLocationIfChanged (Kafka integration)', () => {
     expect(received).toHaveLength(1);
     expect(received[0]).toBe(JSON.stringify(payload));
 
-    await consumer.disconnect();
+    await consumer.stop().catch(() => { });
+    await consumer.disconnect().catch(() => { });
+
 
   });
 });

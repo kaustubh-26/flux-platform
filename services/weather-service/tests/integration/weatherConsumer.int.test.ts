@@ -114,7 +114,7 @@ describe('startWeatherConsumer (integration)', () => {
     mockGetData.mockResolvedValue({
       status: 'success',
       source: 'api',
-      data: { city: 'Mumbai' },
+      data: { city: 'Bengaluru' },
       timestamp: Date.now(),
     });
 
@@ -122,7 +122,7 @@ describe('startWeatherConsumer (integration)', () => {
      * Output consumer to capture published weather updates
      */
     const outputConsumer = kafka.consumer({
-      groupId: 'weather-output-int-test',
+      groupId: `weather-output-int-test-${Date.now()}`,
     });
 
     const publishedMessages: any[] = [];
@@ -151,7 +151,7 @@ describe('startWeatherConsumer (integration)', () => {
     });
 
     consumer = kafka.consumer({
-      groupId: 'weather-consumer-int-test',
+      groupId: `weather-consumer-int-test-${Date.now()}`,
     });
     await consumer.connect();
 
@@ -167,11 +167,11 @@ describe('startWeatherConsumer (integration)', () => {
         {
           value: JSON.stringify({
             data: {
-              city: 'Mumbai',
-              region: 'Maharashtra',
+              city: 'Bengaluru',
+              region: 'Karnataka',
               country: 'India',
-              lat: 19.076,
-              lon: 72.8777,
+              lat: 12.9716,
+              lon: 77.5946,
               ip: '8.8.8.8',
             },
           }),
@@ -185,12 +185,22 @@ describe('startWeatherConsumer (integration)', () => {
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
     /**
-     * Assertions
+     * Assertions:
+     * Filter by test-specific city to prevent cross-test topic pollution
+     * when multiple integration tests share the same Kafka container.
      */
-    expect(mockGetData).toHaveBeenCalledWith('Mumbai');
-    expect(publishedMessages.length).toBe(1);
-    expect(publishedMessages[0].status).toBe('success');
+    const matchingMessages = publishedMessages.filter(
+      (m) => m.data?.city === 'Bengaluru'
+    );
+    expect(mockGetData).toHaveBeenCalledWith('Bengaluru');
+    expect(matchingMessages.length).toBe(1);
+    expect(matchingMessages[0].status).toBe('success');
 
-    await outputConsumer.disconnect();
+    if (consumer) {
+      await consumer.stop().catch(() => {});
+      await consumer.disconnect().catch(() => {});
+    }
+    await outputConsumer.stop().catch(() => {});
+    await outputConsumer.disconnect().catch(() => {});
   });
 });

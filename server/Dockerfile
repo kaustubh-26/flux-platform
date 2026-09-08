@@ -1,46 +1,22 @@
-# -------------------------------
-# Build stage
-# -------------------------------
-FROM node:22.17.1-alpine AS builder
-
-WORKDIR /app
-
-# Root manifests
-COPY package.json package-lock.json ./
-
-# Workspace manifest
-COPY server/package.json server/
-
-# Install deps (incl dev for build)
-RUN npm ci --workspaces --include-workspace-root=false
-
-# Copy source
-COPY server server
-
-# Build
-WORKDIR /app/server
-RUN npm run build
-
-
-# -------------------------------
-# Runtime stage
-# -------------------------------
+# Verified official lightweight Alpine Node base image
 FROM node:22.17.1-alpine
+
+# Set up required 32-bit system helper packages
+RUN apk add --no-cache libatomic
 
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Root + workspace manifests
+# Simply copy the pre-built folders from your host into the image
 COPY package.json package-lock.json ./
-COPY server/package.json server/
-
-# Install ONLY production deps
-RUN npm ci --workspaces --include-workspace-root=false --omit=dev
-
-# Copy compiled output only
-COPY --from=builder /app/server/dist server/dist
+COPY node_modules ./node_modules
+COPY server/package.json ./server/package.json
+COPY server/dist ./server/dist
 
 WORKDIR /app/server
-
 EXPOSE 3000
+
+# Aggressive V8 memory management parameters to protect your 1GB Pi 2 RAM
+ENV NODE_OPTIONS="--max-old-space-size=64 --turbo-string-builder"
 CMD ["node", "dist/server.js"]
+

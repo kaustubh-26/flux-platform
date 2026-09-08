@@ -21,21 +21,29 @@ The goal of this architecture is to support **low-latency real-time updates**, *
 
 The diagram below illustrates the high-level architecture and data flow across Flux components.
 
-The system is organized into three major layers:
+The system is organized into four distinct layers:
 
 ```
-Frontend (Web UI)
+Client (Browser / Mobile)
         │
-        ▼
+        ▼ (Port 80)
+Nginx Ingress Reverse Proxy
+        │
+        ├─► /           → Frontend (React UI)
+        ├─► /socket.io/ → BFF (Real-time gateway)
+        └─► /auth/      → Auth Service (OAuth2 SSO & JWT)
+                             │
+                             ▼
+                          MongoDB
 BFF (Socket.IO + Kafka + Cache)
         │
         ▼
-Domain Services (Kafka-based)
+Domain Services (Kafka-based Microservices)
 ```
 
 Each layer has a **single, clear responsibility**.
 
-All inter-service communication is asynchronous and Kafka-backed, enabling loose coupling and independent scaling.
+All inter-service streaming and coordination is asynchronous and Kafka-backed, enabling loose coupling and independent scaling.
 
 ---
 
@@ -55,9 +63,32 @@ Each ADR explains:
 | Realtime delivery | [ADR-003: Socket.IO over raw WebSockets](ARCHITECTURE_DECISIONS.md#adr-003-socketio-for-realtime-delivery) |
 | Caching | [ADR-004: Valkey as Optional Accelerator](ARCHITECTURE_DECISIONS.md#adr-004-valkey-optional-cache) |
 | Streaming strategy | [ADR-005: Snapshot vs Stream Separation](ARCHITECTURE_DECISIONS.md#adr-005-stream-vs-snapshot-data) |
+| Ingress gateway | [ADR-011: Unified Ingress Gateway (Nginx)](ARCHITECTURE_DECISIONS.md#adr-011-unified-ingress-gateway-nginx-reverse-proxy) |
+| Resource footprint | [ADR-012: Resource-Constrained Platform Profile](ARCHITECTURE_DECISIONS.md#adr-012-resource-constrained-platform-profile-raspberry-pi-2--1gb-ram) |
 
 The **Architecture document describes _what exists_**.  
 ADRs explain **_why these choices were made_**.
+
+---
+
+## 🚪 Ingress Gateway & Auth Layer (Nginx + Auth Service)
+
+To provide a unified same-origin entry point and decouple web clients from backend topology, **Nginx** serves as the system's ingress gateway on port `80`.
+
+### Nginx Routing
+
+* `/` → Proxies to the static React frontend container
+* `/socket.io/` → Upgrades and proxies persistent WebSocket connections to the **BFF** (`server:3000`)
+* `/auth/` → Routes OAuth2 SSO routes (`/auth/google`, `/auth/github`), callbacks, `/me`, and logout to the **Auth Service** (`auth:4001`)
+
+### Auth Service & User Identity
+
+The **Auth Service** operates as a standalone microservice responsible for:
+
+* **OAuth2 SSO**: Handles Google and GitHub OAuth handshakes.
+* **User Persistence**: Stores user profiles in **MongoDB** via Mongoose models.
+* **JWT Cookie Sessions**: Signs JSON Web Tokens and sets them inside secure, `HttpOnly` cookies (`flux_auth_token`), keeping credentials inaccessible to client-side JavaScript.
+* **BFF Identity Handshake**: Real-time clients connect anonymously or pass their session, while guest users are tracked deterministically via `flux_guest_id` and acknowledged via `session:init`.
 
 ---
 
@@ -306,6 +337,29 @@ Details in `docs/testing.md`.
 * Frontend Kafka access
 
 These are conscious decisions.
+
+---
+
+## 🍓 Resource-Constrained Deployment (Raspberry Pi 2 / 1GB RAM)
+
+Flux is designed, tested, and optimized to run reliably on resource-constrained hardware such as a **Raspberry Pi 2 v1.2** (32-bit ARMv7, 1GB total RAM).
+
+Key architectural decisions for low-footprint environments:
+
+1. **Custom ARMv7 Kafka KRaft (`kafka/Dockerfile`)**:
+   - Runs Kafka in single-node KRaft mode (no Zookeeper JVM), built on `eclipse-temurin:17-jre-jammy` with ARMv7 compatibility.
+   - JVM heap is tightly capped (`KAFKA_HEAP_OPTS: "-Xms160m -Xmx160m"`).
+2. **Strict Container Memory Budgets (`mem_limit`)**:
+   - Hard memory limits prevent Linux OOM kills: `kafka` (256MB), `server` (128MB), `valkey` (64MB with 48MB LRU eviction), microservices (64MB each), `promtail` (48MB), `nginx` (16MB).
+3. **V8 Heap Constraints**:
+   - Node.js processes enforce `--max-old-space-size=48` (services) and `--max-old-space-size=96` (BFF) to trigger garbage collection before reaching cgroup limits.
+4. **Log Rotation**:
+   - Docker `json-file` driver limits logs to `max-size: 2m` with `max-file: 2`, protecting flash storage from disk exhaustion.
+5. **Cloud-Offloaded Observability (Promtail → Grafana Cloud)**:
+   - Rather than running heavy local Loki TSDB and Grafana instances (>350MB RAM), a lightweight **Promtail** shipper (48MB limit) ships Docker logs to **Grafana Cloud Loki**, keeping host resources available for streaming workloads.
+   - Centralized observability is provisioned via Dashboards-as-Code in [`grafana/dashboards/flux-logs.json`](../grafana/dashboards/flux-logs.json).
+6. **Host-Side Pre-Builds**:
+   - Multi-stage Docker builds copy pre-compiled TypeScript artifacts (`dist/`) directly, avoiding build-time compiler memory exhaustion on 1GB hosts.
 
 ---
 

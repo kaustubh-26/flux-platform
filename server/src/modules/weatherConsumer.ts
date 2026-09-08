@@ -6,16 +6,29 @@ export async function initWeatherConsumer(
   kafka: Kafka,
   io: Server,
   logger: pino.Logger,
-  opts?: { fromBeginning?: boolean }
+  opts?: { fromBeginning?: boolean },
+  onCrash?: () => void
 ) {
-  const consumer = kafka.consumer({ groupId: 'realtime-dashboard-weather' });
+  const consumer = kafka.consumer({
+    groupId: 'realtime-dashboard-weather',
+    sessionTimeout: 60_000,    // 60s gives time during CPU spikes
+    heartbeatInterval: 10_000,  // Heartbeat every 10s instead of every 3s
+    rebalanceTimeout: 60_000,
+  });
+
+  // If Kafka ever disconnects this consumer, report it
+  const crashEvent = consumer.events?.CRASH ?? 'consumer.crash';
+  consumer.on?.(crashEvent, (e: any) => {
+    logger.error({ err: e?.payload?.error }, 'Weather consumer crashed');
+    onCrash?.();
+  });
 
   await consumer.connect();
   await consumer.subscribe({
     topic: 'weather.service.event.updated',
     fromBeginning: opts?.fromBeginning ?? false,
   });
-  
+
   await consumer.run({
     eachMessage: async ({ topic, message }) => {
       if (!message.value) return;

@@ -2,10 +2,13 @@ server:
   http_listen_port: 9080
 
 positions:
-  filename: /tmp/positions.yaml
+  filename: /run/promtail/positions.yaml
 
 clients:
-  - url: http://loki:3100/loki/api/v1/push
+  - url: https://logs-prod-028.grafana.net/loki/api/v1/push
+    basic_auth:
+      username: "${GRAFANA_LOKI_USER}"
+      password: "${GRAFANA_LOKI_TOKEN}"
 
 scrape_configs:
   - job_name: docker
@@ -14,6 +17,7 @@ scrape_configs:
 
     relabel_configs:
       - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
         target_label: container
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         target_label: service
