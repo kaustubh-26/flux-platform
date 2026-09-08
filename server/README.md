@@ -115,9 +115,8 @@ Consumers:
 
 ⚠️ **Important note:**
 
-* Crypto ticker events are **not cached** at the BFF
-* They are streamed live from `crypto-service`, which itself consumes Coinbase WebSocket feeds
-* The BFF acts purely as a relay for ticker events
+* **Crypto Tickers**: Cached as a short-lived snapshot (`crypto:tickers`, TTL 300s) exclusively for immediate client hydration upon connection/refresh, then streamed live.
+* They are streamed live from `crypto-service`, which consumes Coinbase WebSocket feeds.
 
 ---
 
@@ -127,13 +126,13 @@ The BFF integrates with **Valkey (Redis-compatible)** as an **optional accelerat
 
 Used for:
 
-* Fast client hydration on reconnect
-* Short-lived realtime snapshots (news, stocks, crypto movers, crypto top coins)
+* Fast client hydration on reconnect (including latest crypto tickers)
+* Short-lived realtime snapshots (news, stocks, crypto movers, crypto top coins, crypto tickers)
 * Deduplication windows for user events
 
 Not used for:
 
-* Crypto ticker streams
+* Long-term history or time-series storage
 * Source-of-truth storage
 
 If cache becomes unavailable:

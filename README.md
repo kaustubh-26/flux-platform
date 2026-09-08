@@ -43,9 +43,11 @@ This repository is intentionally built as a **portfolio-grade, open-source syste
 * Event-driven microservices using **Kafka**
 * A resilient **BFF layer** for real-time fan-out
 * **Socket.IO**–based client streaming
+* Unified reverse proxying via **Nginx**
+* OAuth2 SSO & JWT-based session management (**auth-service**)
 * Cache-accelerated hydration with graceful degradation
 * Idempotency & deduplication patterns
-* Structured logging & observability
+* Structured logging & observability (shipping to **Grafana Cloud**)
 * Self-healing Kafka connectivity
 * Clean, scalable monorepo organization
 
@@ -56,48 +58,55 @@ The project emphasizes real-world system design concerns such as **event-driven 
 ## 🧠 High-Level Architecture
 
 ```
-┌──────────────────────┐
-│        Client        │
-│  Browser / Mobile    │
-└─────────▲────────────┘
-          │ Socket.IO (real-time)
-┌─────────┴──────────────┐
-│   Backend-for-Frontend │
-│          (BFF)         │
-│  - Socket.IO Server    │
-│  - Kafka Producer      │
-│  - Kafka Consumer      │
-│  - Cache-aware fanout  │
-└─────────▲──────────────┘
-          │ Commands & Events
-┌─────────┴────────────┐
-│        Kafka         │
-│  Pub/Sub Message Bus │
-│  (at-least-once)     │
-└─────────▲────────────┘
-          │
-┌─────────┴────────────────────────────────────┐
+┌──────────────────────────────────────────┐
+│                  Client                  │
+│             Browser / Mobile             │
+└────────────────────▲─────────────────────┘
+                     │ HTTP / WebSockets (Port 80)
+┌────────────────────▼─────────────────────┐
+│            Nginx Reverse Proxy           │
+│  - /           → Frontend (React UI)     │
+│  - /socket.io/ → BFF (Real-time gateway) │
+│  - /auth/      → Auth Service (OAuth SSO)│
+└────────▲───────────────────▲─────────────┘
+         │                   │
+┌────────┴─────────────┐     │
+│ Backend-for-Frontend │     │
+│        (BFF)         │     │
+│ - Socket.IO Server   │     │
+│ - Kafka Producer     │     │
+│ - Kafka Consumer     │     │
+│ - Cache-aware fanout │     │
+└────────▲─────────────┘     │
+         │ Commands & Events │
+┌────────┴───────────┐       │
+│       Kafka        │       │
+│ Pub/Sub Message Bus│       │
+│ (at-least-once)    │       │
+└────────▲───────────┘       │
+         │                   │
+┌────────┴───────────────────┴─────────────────┐
 │               Domain Services                │
 │                                              │
-│  weather-service  (on-demand + cached)       │
-│  crypto-service   (scheduled + streaming)    │
-│  stock-service    (scheduled)                │
-│  news-service     (scheduled)                │
+│  auth-service    (OAuth2 SSO + JWT + MongoDB)│
+│  weather-service (on-demand + cached)        │
+│  crypto-service  (scheduled + streaming)     │
+│  stock-service   (scheduled)                 │
+│  news-service    (scheduled)                 │
 │                                              │
-│  Each service:                               │
+│  Each streaming service:                     │
 │  - Kafka producer & consumer                 │
 │  - Owns external API integration             │
 └──────────────────────────────────────────────┘
 
-┌──────────────────────────┐
-│      Shared Cache        │
-│   (Valkey / Redis)       │
-│  - Hydration snapshots   │
-│  - Deduplication windows │
-│  - Non-critical (TTL)    │
-│  Used by: BFF + Services │
+┌──────────────────────────┐     ┌──────────────────────────┐
+│      Shared Cache        │     │       User Database      │
+│   (Valkey / Redis)       │     │         (MongoDB)        │
+│  - Hydration snapshots   │     │  - OAuth user accounts   │
+│  - Deduplication windows │     │  - Session identities    │
+│  - Non-critical (TTL)    │     │  Used by: Auth Service   │
+│  Used by: BFF + Services │     └──────────────────────────┘
 └──────────────────────────┘
-
 ```
 
 ---
@@ -120,11 +129,11 @@ The project emphasizes real-world system design concerns such as **event-driven 
 
 The frontend is intentionally **thin and event-driven**:
 
-* One persistent Socket.IO connection
-* Explicit user readiness lifecycle
+* One persistent Socket.IO connection (same-origin via Nginx)
+* Explicit user readiness lifecycle with persistent guest sessions
 * Feature-isolated hooks (weather, news, stocks, crypto)
-* Stateless UI components
-* No global state library
+* Redux Toolkit for high-throughput crypto streams (tickers, sparklines, price deltas)
+* Localized React hook state for independent card queries
 * No direct service or Kafka access
 
 See **`frontend/ARCHITECTURE.md`** for details.
@@ -136,7 +145,7 @@ See **`frontend/ARCHITECTURE.md`** for details.
 ```
 root/
 │
-├── frontend/        # React + Socket.IO client
+├── frontend/        # React + Socket.IO client (Redux Toolkit + Tailwind CSS)
 │
 ├── server/          # BFF (WebSockets + Kafka + Cache)
 │   ├── modules/     # Kafka consumers → socket emitters
@@ -145,12 +154,17 @@ root/
 │   └── server.ts    # Bootstrap & lifecycle
 │
 ├── services/        # Independent domain services
-│   ├── weather-service/
-│   ├── crypto-service/
-│   ├── stock-service/
-│   └── news-service/
+│   ├── auth-service/    # Dedicated OAuth2 SSO & JWT session management
+│   ├── weather-service/ # On-demand & cached weather updates
+│   ├── crypto-service/  # Coinbase streaming & market updates
+│   ├── stock-service/   # Scheduled Finnhub stock performers
+│   └── news-service/    # Scheduled NewsData articles
 │
 ├── docs/            # Architecture & design docs
+├── grafana/         # Dashboards-as-code
+│   └── dashboards/  # Pre-configured Grafana Cloud logging dashboards
+├── nginx.conf       # Ingress reverse proxy configuration
+├── promtail-config.yaml # Promtail log shipper to Grafana Cloud
 └── docker-compose.yml
 ```
 
@@ -494,17 +508,40 @@ docker-compose up --build
 
 This will start:
 
-* Kafka
-* Valkey (Redis-compatible cache)
-* All domain services
-* Backend-for-Frontend (BFF)
+* Nginx Reverse Proxy (Port 80)
 * Frontend dashboard
+* Backend-for-Frontend (BFF)
+* Auth Service (OAuth2 SSO & JWT)
+* Kafka (KRaft mode)
+* Valkey (Redis-compatible cache)
+* All domain services (Weather, Crypto, Stock, News)
+* Promtail (Log shipper to Grafana Cloud)
 
-Once running, open the frontend in your browser:
+Once running, open the application in your browser:
 
 ```text
-http://localhost:5173
+http://localhost
 ```
+
+---
+
+## 📊 Centralized Observability & Logging (Grafana Cloud)
+
+Flux uses a cloud-offloaded observability architecture to eliminate TSDB and visualization overhead on edge runtimes (e.g. Raspberry Pi):
+
+1. **Log Shipper**: A lightweight **Promtail** daemon scrapes container stdout via `/var/run/docker.sock`, enriches streams with Compose metadata (`service`, `container`), and ships them over TLS to **Grafana Cloud Loki**.
+2. **Dashboards-as-Code**: A pre-configured operational dashboard is provided in [`grafana/dashboards/flux-logs.json`](grafana/dashboards/flux-logs.json).
+3. **Turnkey Telemetry**:
+   * **Platform Overview**: Total log ingestion counter, real-time error counts, error rates (% of volume), and active service counts.
+   * **Log Rate & Throughput**: Timeseries tracking log lines per second grouped by service.
+   * **Error Inspection**: Dedicated stream isolating application exceptions and failures with false-positive filtering.
+   * **Live Log Stream**: Unified log stream filterable by service dropdown and freeform keyword search.
+
+### Importing the Dashboard to Grafana Cloud
+
+1. In your Grafana Cloud instance, navigate to **Dashboards** > **New** > **Import**.
+2. Upload [`grafana/dashboards/flux-logs.json`](grafana/dashboards/flux-logs.json) or paste its contents.
+3. Select your Loki data source and click **Import**.
 
 ---
 

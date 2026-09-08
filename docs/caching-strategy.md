@@ -79,14 +79,12 @@ Some domains produce frequent updates, but **not all of them are cached**.
 | ------------------- | ------------- | ------------ |
 | Crypto movers       | ✅ Yes         | ~5 minutes   |
 | Crypto top coins    | ✅ Yes         | ~5 minutes   |
+| Crypto tickers      | ✅ Yes (Snapshot) | ~5 minutes (300s) |
 | News                | ✅ Yes         | ~10 minutes  |
 | Stocks (top movers) | ✅ Yes         | ~1–5 minutes |
 
-**Not cached:**
-
-| Domain         | Reason                                                                                                                                 |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Crypto tickers | Live streamed via WebSocket from crypto-service (Coinbase feed). No snapshot semantics, high-frequency updates, caching adds no value. |
+> [!NOTE]
+> **Crypto Tickers**: Cached as a short-lived snapshot (`crypto:tickers`, TTL 300s) exclusively for immediate client hydration upon connection/refresh, then streamed live.
 
 Cached snapshots are:
 
@@ -152,12 +150,6 @@ Keys are:
 
 Examples:
 
-````text
-bff:crypto:top-movers
-bff:crypto:top-coins
-bff:news:global
-bff:stocks:top-performers
-loc_dedup:{userId}
 ```text
 bff:crypto:top-movers
 bff:crypto:top-coins
@@ -165,7 +157,7 @@ crypto:tickers
 bff:news:global
 bff:stocks:top:performers
 loc_dedup:{userId}
-````
+```
 
 This avoids collisions and simplifies debugging.
 

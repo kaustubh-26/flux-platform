@@ -194,30 +194,31 @@ Examples:
 
 ---
 
-## ADR-007: Crypto Tickers as Stream-Only Data
+## ADR-007: Crypto Tickers as Streaming Data with Hydration Caching
 
 ### Context
 
-Crypto ticker data is extremely high-frequency and unsuitable for cache-based delivery.
+Crypto ticker data is extremely high-frequency. While it cannot rely on cache as the primary delivery mechanism, clients connecting or refreshing without a cached snapshot experience cold-start latency until the next trade event arrives.
 
 ### Decision
 
-Treat crypto tickers as **stream-only**:
+Stream crypto tickers live, but maintain a short-lived last-known snapshot in the cache:
 
-* Streamed from Coinbase
-* Batched and published to Kafka
-* Not cached at the BFF
+* Streamed from Coinbase via `crypto-service` and published to Kafka
+* **Crypto Tickers**: Cached as a short-lived snapshot (`crypto:tickers`, TTL 300s) exclusively for immediate client hydration upon connection/refresh, then streamed live
+* Relayed live to connected WebSocket clients
 
 ### Consequences
 
 **Pros:**
 
-* Lower cache pressure
-* Always-fresh pricing
+* Instant client hydration without blank UI states
+* Always-fresh pricing via live streaming
+* Minimal cache memory footprint (short TTL, bounded key space)
 
 **Cons:**
 
-* No historical replay for tickers
+* Minor cache overhead to maintain the latest snapshot map
 
 ---
 
@@ -298,6 +299,65 @@ Invest heavily in documentation:
 **Cons:**
 
 * Higher documentation maintenance cost
+
+---
+
+## ADR-011: Unified Ingress Gateway (Nginx Reverse Proxy)
+
+### Context
+
+Exposing multiple ports to client browsers (`5173` for UI, `3000` for Socket.IO, `4001` for Auth) complicates CORS policies, secure session cookie scoping, and container networking.
+
+### Decision
+
+Deploy **Nginx** as a unified reverse proxy on port `80`:
+
+* `/` → Static React UI
+* `/socket.io/` → BFF real-time WebSocket connection
+* `/auth/` → Dedicated Auth Service (OAuth2 SSO & JWT)
+
+### Consequences
+
+**Pros:**
+
+* True same-origin architecture with zero CORS overhead
+* Unified `HttpOnly` cookie domain for secure sessions
+* Single, predictable port for local and production deployment (`http://localhost`)
+
+**Cons:**
+
+* Additional proxy hop in the network path
+
+---
+
+## ADR-012: Resource-Constrained Platform Profile (Raspberry Pi 2 / 1GB RAM)
+
+### Context
+
+Running a complete event-driven ecosystem (Kafka, Valkey, BFF, Auth, 4 domain microservices, logging) on a Raspberry Pi 2 v1.2 (32-bit ARMv7, 1GB total RAM) risks fatal OOM kills without aggressive resource management.
+
+### Decision
+
+Implement system-wide resource boundaries:
+
+* Custom single-node Kafka KRaft image (`kafka/Dockerfile`) on `eclipse-temurin:17-jre-jammy` for `linux/arm/v7`, eliminating Zookeeper memory overhead
+* Strict Docker Compose container memory caps (`mem_limit`) and log rotation
+* Tuned Node.js V8 heap caps (`--max-old-space-size=48` and `96`)
+* Lightweight log shipping via Promtail (48MB limit) to Grafana Cloud rather than running a heavy local Loki TSDB and Grafana instance
+* Dashboards-as-Code operational dashboard provisioned in `grafana/dashboards/flux-logs.json` for turnkey Grafana Cloud telemetry
+* Multi-stage Docker builds copying host-precompiled TypeScript (`dist/`) to prevent build-time memory exhaustion
+
+### Consequences
+
+**Pros:**
+
+* Complete 9-container event-driven platform runs stably within a 1GB memory budget
+* Eliminates unexpected kernel OOM process termination
+* Preserves flash storage longevity via capped log rotations
+
+**Cons:**
+
+* Requires external Grafana Cloud credentials for log visualization
 
 ---
 

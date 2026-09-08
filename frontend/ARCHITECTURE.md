@@ -88,11 +88,12 @@ No component or hook creates its own socket instance.
 
 The frontend follows an explicit readiness flow:
 
-1. Socket connects
-2. User ID is retrieved or generated
-3. Client resolves and sends location metadata
-4. Client is marked `userReady`
-5. Feature hooks activate subscriptions
+1. Client resolves or generates a persistent `guestId` from `localStorage` (`flux_guest_id`)
+2. Socket connects, passing `guestId` in `socket.auth`
+3. Server resolves identity via middleware and acknowledges with `session:init`
+4. Client resolves and sends location metadata (`userLocationUpdate`)
+5. Client is marked `userReady`
+6. Feature hooks activate subscriptions
 
 This ensures:
 
@@ -173,9 +174,11 @@ The UI remains usable even with incomplete or delayed data.
 
 ## State Management Philosophy
 
-* No global state library
-* No shared mutable stores
-* Localized hook state only
+Flux adopts a **hybrid state management model** optimized for high-frequency real-time updates:
+
+* **Redux Toolkit (`src/store/`)**: Used specifically for high-velocity streaming data (crypto tickers, price deltas, sparklines, top coins) to prevent re-render cascades across the component tree and provide centralized, high-performance state snapshots.
+* **Local Hook State**: Retained for card-level domain queries (weather, news, stocks), ensuring domain components remain self-contained and failure-isolated.
+* **No Shared Mutable Stores**: Components consume state strictly through typed selector hooks (`useAppSelector`) or domain hooks without cross-domain coupling.
 
 Socket events are treated as:
 

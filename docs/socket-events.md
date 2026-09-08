@@ -56,18 +56,25 @@ These events represent **user intent**.
 
 ---
 
-### `getUserId`
+### `session:init` *(Handshake & Identity)*
 
-Request a unique user identifier.
+> [!NOTE]
+> The legacy `getUserId` event is **Deprecated / Removed**.
 
-**Client → BFF**
+Identity is now established during the initial Socket.IO connection handshake:
 
-**Response:** `userUniqueId`
+1. **Client Handshake**: Client sends `auth: { guestId }` during connection (resolved from `localStorage` under `flux_guest_id`).
+2. **Server Middleware**: Resolves identity and binds context to `socket.data.user = { id, type, ip }`.
+3. **`session:init` (BFF → Client)**: Emitted by BFF immediately upon connection.
 
-**Notes:**
+**Payload:**
 
-* UUID generated server-side
-* Used for deduplication and session tracking
+```json
+{
+  "userId": "uuid-or-guestId",
+  "userType": "guest"
+}
+```
 
 ---
 
@@ -88,9 +95,8 @@ Send user location data to the backend.
 }
 ```
 
-**Additional parameter:**
-
-* `userId`
+> [!NOTE]
+> `userId` is **no longer passed as a parameter**; it is resolved automatically on the server from `socket.data.user.id`.
 
 **BFF behavior:**
 
@@ -213,9 +219,8 @@ These events represent **state updates** pushed to clients.
 **Notes:**
 
 * High-frequency event stream
-* **Not cached at the BFF**
-* Relayed directly from crypto-service (Coinbase feed)
-* Snapshot semantics do not apply
+* Cached as a short-lived snapshot (`crypto:tickers`, TTL 300s) for immediate client hydration on connect
+* Relayed live from crypto-service (Coinbase feed)
 
 ---
 
