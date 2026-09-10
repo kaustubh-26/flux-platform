@@ -35,7 +35,7 @@ const env = envSchema.parse(process.env);
 
 // Resolve secret once
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY && !process.env.FINNHUB_API_KEY.startsWith("/run/secrets/")
-    ? process.env.FINNHUB_API_KEY : resolveSecret("FINNHUB_API_KEY");
+  ? process.env.FINNHUB_API_KEY : resolveSecret("FINNHUB_API_KEY");
 
 
 // Axios client
@@ -174,21 +174,28 @@ async function handleBffTopPerformersRequest(topic: string, message: any) {
 }
 
 async function publishTopPerformersEvent(performers: any) {
-  if (!kafkaAvailable) {
-    logger.warn("Kafka unavailable, skipping publish");
-    return;
+  try {
+    await producer.send({
+      topic: "stock.service.event.updated",
+      messages: [
+        {
+          value: JSON.stringify({ data: performers }),
+        },
+      ],
+    });
+
+    if (!kafkaAvailable) {
+      kafkaAvailable = true;
+      logger.info("Kafka connection restored");
+    }
+
+    logger.info("Top performers published to Kafka");
+  } catch (err) {
+    if (kafkaAvailable) {
+      kafkaAvailable = false;
+      logger.warn({ reason: (err as Error)?.message }, "Kafka publish failed, entering retry mode");
+    }
   }
-
-  await producer.send({
-    topic: "stock.service.event.updated",
-    messages: [
-      {
-        value: JSON.stringify({ data: performers }),
-      },
-    ],
-  });
-
-  logger.info("Top performers published to Kafka");
 }
 
 async function scheduledTopPerformersRefresh(topic: string, message: any) {
