@@ -117,7 +117,11 @@ let stocksConsumer: Consumer;
 
 let didInitialRefresh = false;
 
-const handleCrash = () => {
+const handleCrash = (e?: any) => {
+    if (e?.payload?.restart) {
+        logger.warn({ groupId: e?.payload?.groupId }, 'Kafka consumer transient lag, KafkaJS is auto-reconnecting. Skipping recreation.');
+        return;
+    }
     if (!shuttingDown && kafkaReady) {
         logger.warn('A Kafka consumer crashed. Triggering auto-recovery...');
         kafkaReady = false; // This triggers kafkaRecoveryLoop() to reconnect
@@ -136,12 +140,30 @@ async function initProducer() {
         try {
             await producer.connect();
             // Start domain-specific consumers
-            if (weatherConsumer) await weatherConsumer.disconnect();
-            if (cryptoTopMoversConsumer) await cryptoTopMoversConsumer.disconnect();
-            if (cryptoTopCoinsConsumer) await cryptoTopCoinsConsumer.disconnect();
-            if (cryptoTickerConsumer) await cryptoTickerConsumer.disconnect();
-            if (newsConsumer) await newsConsumer.disconnect();
-            if (stocksConsumer) await stocksConsumer.disconnect();
+            if (weatherConsumer) {
+                await weatherConsumer.stop().catch(() => {});
+                await weatherConsumer.disconnect().catch(() => {});
+            }
+            if (cryptoTopMoversConsumer) {
+                await cryptoTopMoversConsumer.stop().catch(() => {});
+                await cryptoTopMoversConsumer.disconnect().catch(() => {});
+            }
+            if (cryptoTopCoinsConsumer) {
+                await cryptoTopCoinsConsumer.stop().catch(() => {});
+                await cryptoTopCoinsConsumer.disconnect().catch(() => {});
+            }
+            if (cryptoTickerConsumer) {
+                await cryptoTickerConsumer.stop().catch(() => {});
+                await cryptoTickerConsumer.disconnect().catch(() => {});
+            }
+            if (newsConsumer) {
+                await newsConsumer.stop().catch(() => {});
+                await newsConsumer.disconnect().catch(() => {});
+            }
+            if (stocksConsumer) {
+                await stocksConsumer.stop().catch(() => {});
+                await stocksConsumer.disconnect().catch(() => {});
+            }
 
             weatherConsumer = await initWeatherConsumer(kafka, io, logger, undefined, handleCrash);
             cryptoTopMoversConsumer = await initCryptoTopMoversConsumer(kafka, io, logger, undefined, handleCrash);
@@ -582,38 +604,38 @@ async function shutdown(signal: string) {
         logger.info('Cache connection closed');
 
         if (cryptoTickerConsumer) {
-            await cryptoTickerConsumer.stop();  // stop rejoin
-            await cryptoTickerConsumer.disconnect();
+            await cryptoTickerConsumer.stop().catch(() => { }); // stop rejoin
+            await cryptoTickerConsumer.disconnect().catch(() => { });
             logger.info('Kafka cryptoTickerConsumer disconnected');
         }
 
         if (weatherConsumer) {
-            await weatherConsumer.stop();  // stop rejoin
-            await weatherConsumer.disconnect();
+            await weatherConsumer.stop().catch(() => { }); // stop rejoin
+            await weatherConsumer.disconnect().catch(() => { });
             logger.info('Kafka weatherConsumer disconnected');
         }
 
         if (newsConsumer) {
-            await newsConsumer.stop();  // stop rejoin
-            await newsConsumer.disconnect();
+            await newsConsumer.stop().catch(() => { });  // stop rejoin
+            await newsConsumer.disconnect().catch(() => { });
             logger.info('Kafka newsConsumer disconnected');
         }
 
         if (stocksConsumer) {
-            await stocksConsumer.stop();  // stop rejoin
-            await stocksConsumer.disconnect();
+            await stocksConsumer.stop().catch(() => { });  // stop rejoin
+            await stocksConsumer.disconnect().catch(() => { });
             logger.info('Kafka stocksConsumer disconnected');
         }
 
         if (cryptoTopMoversConsumer) {
-            await cryptoTopMoversConsumer.stop();  // stop rejoin
-            await cryptoTopMoversConsumer.disconnect();
+            await cryptoTopMoversConsumer.stop().catch(() => { });  // stop rejoin
+            await cryptoTopMoversConsumer.disconnect().catch(() => { });
             logger.info('Kafka cryptoTopMoversConsumer disconnected');
         }
 
         if (cryptoTopCoinsConsumer) {
-            await cryptoTopCoinsConsumer.stop();  // stop rejoin
-            await cryptoTopCoinsConsumer.disconnect();
+            await cryptoTopCoinsConsumer.stop().catch(() => { });  // stop rejoin
+            await cryptoTopCoinsConsumer.disconnect().catch(() => { });
             logger.info('Kafka cryptoTopCoinsConsumer disconnected');
         }
 
@@ -637,15 +659,19 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 // Start the service
 // -------------------------------------------------
 let shuttingDown = false;
+let isRecovering = false;
 
 async function kafkaRecoveryLoop() {
     while (!shuttingDown) {
-        if (!kafkaReady) {
+        if (!kafkaReady && !isRecovering) {
+            isRecovering = true;
             try {
                 logger.info('Attempting Kafka reconnect...');
                 await initProducer();
             } catch {
                 logger.warn('Kafka still unavailable, retrying...');
+            } finally {
+                isRecovering = false;
             }
         }
         await new Promise(r => setTimeout(r, 10_000));

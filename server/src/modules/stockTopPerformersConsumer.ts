@@ -15,7 +15,7 @@ export async function initStockTopPerformersConsumer(
     io: Server,
     logger: pino.Logger,
     opts?: { fromBeginning?: boolean },
-    onCrash?: () => void
+    onCrash?: (e?: any) => void
 ) {
     const consumer = kafka.consumer({
         groupId: 'realtime-dashboard-stock-topperformers',
@@ -27,8 +27,17 @@ export async function initStockTopPerformersConsumer(
     // If Kafka ever disconnects this consumer, report it
     const crashEvent = consumer.events?.CRASH ?? 'consumer.crash';
     consumer.on?.(crashEvent, (e: any) => {
-        logger.error({ err: e?.payload?.error }, 'Stock top performers consumer crashed');
-        onCrash?.();
+        const isRetrying = e?.payload?.restart;
+        logger.warn(
+            { err: e?.payload?.error?.message, restart: isRetrying },
+            'Stock top performers consumer crashed'
+        );
+        // If KafkaJS is auto-restarting the runner, DO NOT tear down or recreate
+        if (isRetrying) {
+            return;
+        }
+        // Fatal crash only
+        onCrash?.(e);
     });
 
     await consumer.connect();
