@@ -111,7 +111,7 @@ services:
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
       VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
-      TICKER_FLUSH_INTERVAL_MS: 2000
+      TICKER_FLUSH_INTERVAL_MS: 5000
     secrets:
       - valkey_pass
 

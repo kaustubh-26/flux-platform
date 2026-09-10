@@ -52,15 +52,13 @@ const kafka = new Kafka({
 });
 
 const producer: Producer = kafka.producer({
-    idempotent: true, // enable idempotence for safe retries
     retry: {
         initialRetryTime: 300,      // ms, flat delay for 1st retry [page:1]
         retries: 20,                // Finite limit prevents infinite hangs
         factor: 0.2,                // Randomization factor (±20%) [page:1]
         multiplier: 2,              // Exponential growth multiplier [page:1]
         maxRetryTime: 30000,        // Cap total retry window at 30s
-    },
-    maxInFlightRequests: 5,       // Limit parallelism during retries
+    }
 });
 
 let topMoversConsumer: Consumer;
