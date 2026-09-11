@@ -29,7 +29,7 @@ services:
       # will connect to on port 9094.
       KAFKA_EXTERNAL_HOST: ${KAFKA_EXTERNAL_HOST:-192.168.1.109}
     mem_limit: 256m
-    memswap_limit: 256m
+    memswap_limit: 384m
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
