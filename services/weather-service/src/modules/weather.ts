@@ -47,19 +47,20 @@ export class WeatherService {
     // Cache-first (best effort)
     if (cacheAvailable()) {
       try {
-        const cached = await cacheGet(cacheKey);
+        const cached = await cacheGet<WeatherApiResponse>(cacheKey);
 
         if (cached) {
           const hourData = getCurrentHourForecast(cached);
 
-          logger.info({ city }, 'Weather cache hit');
-
-          return {
-            status: 'success',
-            source: 'cache',
-            data: this.createResponse(city, hourData),
-            timestamp,
-          };
+          if (hourData) {
+            logger.info({ city }, 'Weather cache hit');
+            return {
+              status: 'success',
+              source: 'cache',
+              data: this.createResponse(city, hourData),
+              timestamp,
+            };
+          }
         }
       } catch (err) {
         logger.warn({ err }, 'Cache read failed, falling back to API');
@@ -101,7 +102,7 @@ export class WeatherService {
       // Cache write (best effort)
       if (cacheAvailable()) {
         const ttlSeconds = 6 * 60 * 60; // 6 hours
-        await cacheSet(cacheKey, JSON.stringify(weather), ttlSeconds);
+        await cacheSet(cacheKey, weather, ttlSeconds);
 
         logger.debug(
           { city, ttlSeconds },
