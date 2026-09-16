@@ -1,8 +1,11 @@
 import dotenv from 'dotenv';
 import http from 'http';
+import path from 'path';
 import express from 'express';
 import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
+import app from './app';
+import { createSocketServer } from './socket';
 import { Consumer, Kafka, logLevel, Partitioners, Producer } from 'kafkajs';
 import pino from 'pino';
 import { z } from 'zod';
@@ -18,17 +21,21 @@ import { CRYPTO_MOVERS_CACHE_KEY, CRYPTO_TOPCOINS_CACHE_KEY, CRYPTO_TICKER_CACHE
 import { initStockTopPerformersConsumer } from './modules/stockTopPerformersConsumer';
 import { STOCK_TOP_PERFORMERS_CACHE_KEY } from './constants/stocks';
 import { NEWS_GLOBAL_CACHE_KEY } from './constants/news';
+import { SocketUser, SocketUserType, AuthenticatedUser } from './types/auth';
 
 // -------------------------------------------------
 // Load & validate environment variables
 // -------------------------------------------------
 dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const envSchema = z.object({
     KAFKA_BROKER_ADDRESS: z.string().min(1),
     FRONTEND_URL: z.string().url(),
     SERVER_PORT: z.string().regex(/^\d+$/),
-    NODE_ENV: z.enum(['development', 'production']).default('production')
+    NODE_ENV: z.enum(['development', 'production']).default('production'),
+    JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
+    COOKIE_NAME: z.string().default('flux_auth_token')
 });
 
 type Env = z.infer<typeof envSchema>;
@@ -57,42 +64,9 @@ const logger = pino({
 logger.info(env.NODE_ENV, logger.level);
 
 // -------------------------------------------------
-// Socket identity typing
+// Socket identity typing is imported from ./types/auth
 // -------------------------------------------------
-type SocketUserType = 'guest';
 
-interface SocketUser {
-    id: string;
-    type: SocketUserType;
-    ip: string;
-}
-
-declare module 'socket.io' {
-    interface SocketData {
-        user: SocketUser;
-    }
-}
-
-// -------------------------------------------------
-// Helpers
-// -------------------------------------------------
-function resolveClientIp(socket: Socket): string {
-    const forwarded = socket.handshake.headers['x-forwarded-for'];
-    return forwarded?.toString().split(',')[0].trim() || socket.handshake.address;
-}
-
-function resolveGuestId(socket: Socket): string {
-    const rawGuestId = socket.handshake.auth?.guestId;
-
-    if (typeof rawGuestId === 'string' &&
-        rawGuestId.trim().length > 0 &&
-        rawGuestId.trim().length <= 128
-    ) {
-        return rawGuestId.trim();
-    }
-
-    return uuidv4();
-}
 
 // -------------------------------------------------
 // Kafka connection
@@ -308,50 +282,10 @@ async function sendTopNewsRefresh(producer: Producer, logger: pino.Logger, reaso
 
 
 // -------------------------------------------------
-// HTTP Server
+// HTTP Server & Socket Server
 // -------------------------------------------------
-const app = express();
-app.set("trust proxy", true);
-
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: process.env.FRONTEND_URL, // frontend URL origin
-        methods: ["GET", "POST"],
-        credentials: true
-    }
-});
-
-// -------------------------------------------------
-// Identity middleware
-// -------------------------------------------------
-io.use((socket, next) => {
-    try {
-        const ip = resolveClientIp(socket);
-        const guestId = resolveGuestId(socket);
-
-        socket.data.user = {
-            id: guestId,
-            type: 'guest',
-            ip,
-        };
-
-        logger.debug(
-            {
-                socketId: socket.id,
-                userId: socket.data.user.id,
-                userType: socket.data.user.type,
-                ip,
-            },
-            'Socket identity resolved during connection'
-        );
-
-        next();
-    } catch (err) {
-        logger.error({ err, socketId: socket.id }, 'Failed to resolve socket identity');
-        next(new Error('Unable to initialize socket session'));
-    }
-});
+const io = createSocketServer(server);
 
 
 // -------------------------------------------------

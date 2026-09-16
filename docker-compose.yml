@@ -217,6 +217,8 @@ services:
       VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
       FRONTEND_URL: ${FRONTEND_URL:-http://nginx:80}
       SERVER_PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_NAME: ${COOKIE_NAME:-flux_auth_token}
     secrets:
       - valkey_pass
 
