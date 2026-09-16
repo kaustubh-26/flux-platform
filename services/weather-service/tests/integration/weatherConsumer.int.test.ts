@@ -155,52 +155,64 @@ describe('startWeatherConsumer (integration)', () => {
     });
     await consumer.connect();
 
-    await startWeatherConsumer(consumer, producer);
+    try {
+      await startWeatherConsumer(consumer, producer);
 
-    /**
-     * Produce VALID location payload
-     * (must satisfy LocationSchema exactly)
-     */
-    await producer.send({
-      topic: 'weather.service.command.fetch',
-      messages: [
-        {
-          value: JSON.stringify({
-            data: {
-              city: 'Bengaluru',
-              region: 'Karnataka',
-              country: 'India',
-              lat: 12.9716,
-              lon: 77.5946,
-              ip: '8.8.8.8',
-            },
-          }),
-        },
-      ],
-    });
+      /**
+       * Produce VALID location payload
+       * (must satisfy LocationSchema exactly)
+       */
+      await producer.send({
+        topic: 'weather.service.command.fetch',
+        messages: [
+          {
+            value: JSON.stringify({
+              data: {
+                city: 'Bengaluru',
+                region: 'Karnataka',
+                country: 'India',
+                lat: 12.9716,
+                lon: 77.5946,
+                ip: '8.8.8.8',
+              },
+            }),
+          },
+        ],
+      });
 
-    /**
-     * Allow Kafka consumer loop to process message
-     */
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+      /**
+       * Poll with timeout instead of fixed sleep for resilient message consumption
+       */
+      const startTime = Date.now();
+      const timeoutMs = 15000;
+      while (Date.now() - startTime < timeoutMs) {
+        if (
+          mockGetData.mock.calls.length > 0 &&
+          publishedMessages.some((m) => m.data?.city === 'Bengaluru')
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
 
-    /**
-     * Assertions:
-     * Filter by test-specific city to prevent cross-test topic pollution
-     * when multiple integration tests share the same Kafka container.
-     */
-    const matchingMessages = publishedMessages.filter(
-      (m) => m.data?.city === 'Bengaluru'
-    );
-    expect(mockGetData).toHaveBeenCalledWith('Bengaluru');
-    expect(matchingMessages.length).toBe(1);
-    expect(matchingMessages[0].status).toBe('success');
-
-    if (consumer) {
-      await consumer.stop().catch(() => {});
-      await consumer.disconnect().catch(() => {});
+      /**
+       * Assertions:
+       * Filter by test-specific city to prevent cross-test topic pollution
+       * when multiple integration tests share the same Kafka container.
+       */
+      const matchingMessages = publishedMessages.filter(
+        (m) => m.data?.city === 'Bengaluru'
+      );
+      expect(mockGetData).toHaveBeenCalledWith('Bengaluru');
+      expect(matchingMessages.length).toBe(1);
+      expect(matchingMessages[0].status).toBe('success');
+    } finally {
+      if (consumer) {
+        await consumer.stop().catch(() => {});
+        await consumer.disconnect().catch(() => {});
+      }
+      await outputConsumer.stop().catch(() => {});
+      await outputConsumer.disconnect().catch(() => {});
     }
-    await outputConsumer.stop().catch(() => {});
-    await outputConsumer.disconnect().catch(() => {});
   });
 });
