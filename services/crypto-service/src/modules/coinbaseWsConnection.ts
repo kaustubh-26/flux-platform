@@ -15,6 +15,7 @@ export class CoinbaseWsConnection {
 
   private kafkaDownLogged = false;
   private shuttingDown = false;
+  private isFlushing = false;
 
   // ---------- ticker coalescing ----------
   private tickerBuffer = new Map<string, any>(); // product_id -> latest ticker
@@ -129,15 +130,11 @@ export class CoinbaseWsConnection {
     }
   }
 
-
   private startFlushLoop() {
     if (this.flushTimer) return;
 
     this.flushTimer = setInterval(async () => {
-      if (!this.isReady || this.tickerBuffer.size === 0) return;
-
-      const batch = Array.from(this.tickerBuffer.entries());
-
+      if (!this.isReady || this.tickerBuffer.size === 0 || this.isFlushing) return;
 
       if (!this.kafkaHealth.isAvailable()) {
         if (!this.kafkaDownLogged) {
@@ -150,6 +147,8 @@ export class CoinbaseWsConnection {
       // Kafka is available again
       this.kafkaDownLogged = false;
 
+      this.isFlushing = true;
+      const batch = Array.from(this.tickerBuffer.entries());
       this.tickerBuffer.clear();
 
       try {
@@ -171,6 +170,8 @@ export class CoinbaseWsConnection {
           'Kafka ticker batch publish failed'
         );
         this.kafkaDownLogged = true;
+      } finally {
+        this.isFlushing = false;
       }
     }, this.flushIntervalMs);
   }

@@ -11,11 +11,13 @@ secrets:
 services:
   # -------------------------------------------------
   # Kafka (KRaft mode, single node — no Zookeeper needed)
-  # Pre-built for 32-bit ARM (arm/v7) and pulled from Docker Hub.
-  # Source Dockerfile & configs located in ./kafka (used in docker-compose.local.yml)
+  # Custom-built on eclipse-temurin:17-jre-jammy (arm/v7 compatible).
+  # Build context is ./kafka — see Dockerfile/entrypoint.sh/server.properties there.
   # -------------------------------------------------
   kafka:
-    image: kaustubh456/kafka-armv7:latest
+    build:
+      context: ./kafka
+      dockerfile: Dockerfile
     container_name: kafka
     ports:
       - "9092:9092"
@@ -59,7 +61,8 @@ services:
   # Application Microservices
   # -------------------------------------------------
   weather-service:
-    image: kaustubh456/flux-platform-weather-service:latest
+    image: local/weather-service:latest
+    pull_policy: never
     container_name: weather-service
     logging:
       driver: "json-file"
@@ -86,7 +89,8 @@ services:
       - weather_api_key
 
   crypto-service:
-    image: kaustubh456/flux-platform-crypto-service:latest
+    image: local/crypto-service:latest
+    pull_policy: never
     container_name: crypto-service
     logging:
       driver: "json-file"
@@ -112,7 +116,8 @@ services:
       - valkey_pass
 
   stock-service:
-    image: kaustubh456/flux-platform-stock-service:latest
+    image: local/stock-service:latest
+    pull_policy: never
     container_name: stock-service
     logging:
       driver: "json-file"
@@ -139,7 +144,8 @@ services:
       - finnhub_api_key
 
   news-service:
-    image: kaustubh456/flux-platform-news-service:latest
+    image: local/news-service:latest
+    pull_policy: never
     container_name: news-service
     logging:
       driver: "json-file"
@@ -170,7 +176,8 @@ services:
   # Auth Service
   # -------------------------------------------------
   auth:
-    image: kaustubh456/flux-platform-auth-service:latest
+    image: local/auth-service:latest
+    pull_policy: never
     container_name: auth
     mem_limit: 48m
     logging:
@@ -186,7 +193,8 @@ services:
   # Server Engine / Gateway BFF
   # -------------------------------------------------
   server:
-    image: kaustubh456/flux-platform-server:latest
+    image: local/server:latest
+    pull_policy: never
     container_name: server
     mem_limit: 128m
     logging:
@@ -217,8 +225,6 @@ services:
       VALKEY_PASSWORD_FILE: /run/secrets/valkey_pass
       FRONTEND_URL: ${FRONTEND_URL:-http://nginx:80}
       SERVER_PORT: 3000
-      JWT_SECRET: ${JWT_SECRET}
-      COOKIE_NAME: ${COOKIE_NAME:-flux_auth_token}
     secrets:
       - valkey_pass
 
@@ -226,7 +232,8 @@ services:
   # Web Frontend & Reverse Proxy
   # -------------------------------------------------
   frontend:
-    image: kaustubh456/flux-platform-frontend:latest
+    image: local/frontend:latest
+    pull_policy: never
     container_name: frontend
     mem_limit: 32m
     depends_on:

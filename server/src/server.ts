@@ -1,8 +1,11 @@
 import dotenv from 'dotenv';
 import http from 'http';
+import path from 'path';
 import express from 'express';
 import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
+import app from './app';
+import { createSocketServer } from './socket';
 import { Consumer, Kafka, logLevel, Partitioners, Producer } from 'kafkajs';
 import pino from 'pino';
 import { z } from 'zod';
@@ -18,17 +21,21 @@ import { CRYPTO_MOVERS_CACHE_KEY, CRYPTO_TOPCOINS_CACHE_KEY, CRYPTO_TICKER_CACHE
 import { initStockTopPerformersConsumer } from './modules/stockTopPerformersConsumer';
 import { STOCK_TOP_PERFORMERS_CACHE_KEY } from './constants/stocks';
 import { NEWS_GLOBAL_CACHE_KEY } from './constants/news';
+import { SocketUser, SocketUserType, AuthenticatedUser } from './types/auth';
 
 // -------------------------------------------------
 // Load & validate environment variables
 // -------------------------------------------------
 dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const envSchema = z.object({
     KAFKA_BROKER_ADDRESS: z.string().min(1),
     FRONTEND_URL: z.string().url(),
     SERVER_PORT: z.string().regex(/^\d+$/),
-    NODE_ENV: z.enum(['development', 'production']).default('production')
+    NODE_ENV: z.enum(['development', 'production']).default('production'),
+    JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
+    COOKIE_NAME: z.string().default('flux_auth_token')
 });
 
 type Env = z.infer<typeof envSchema>;
@@ -57,42 +64,9 @@ const logger = pino({
 logger.info(env.NODE_ENV, logger.level);
 
 // -------------------------------------------------
-// Socket identity typing
+// Socket identity typing is imported from ./types/auth
 // -------------------------------------------------
-type SocketUserType = 'guest';
 
-interface SocketUser {
-    id: string;
-    type: SocketUserType;
-    ip: string;
-}
-
-declare module 'socket.io' {
-    interface SocketData {
-        user: SocketUser;
-    }
-}
-
-// -------------------------------------------------
-// Helpers
-// -------------------------------------------------
-function resolveClientIp(socket: Socket): string {
-    const forwarded = socket.handshake.headers['x-forwarded-for'];
-    return forwarded?.toString().split(',')[0].trim() || socket.handshake.address;
-}
-
-function resolveGuestId(socket: Socket): string {
-    const rawGuestId = socket.handshake.auth?.guestId;
-
-    if (typeof rawGuestId === 'string' &&
-        rawGuestId.trim().length > 0 &&
-        rawGuestId.trim().length <= 128
-    ) {
-        return rawGuestId.trim();
-    }
-
-    return uuidv4();
-}
 
 // -------------------------------------------------
 // Kafka connection
@@ -117,7 +91,11 @@ let stocksConsumer: Consumer;
 
 let didInitialRefresh = false;
 
-const handleCrash = () => {
+const handleCrash = (e?: any) => {
+    if (e?.payload?.restart) {
+        logger.warn({ groupId: e?.payload?.groupId }, 'Kafka consumer transient lag, KafkaJS is auto-reconnecting. Skipping recreation.');
+        return;
+    }
     if (!shuttingDown && kafkaReady) {
         logger.warn('A Kafka consumer crashed. Triggering auto-recovery...');
         kafkaReady = false; // This triggers kafkaRecoveryLoop() to reconnect
@@ -136,12 +114,30 @@ async function initProducer() {
         try {
             await producer.connect();
             // Start domain-specific consumers
-            if (weatherConsumer) await weatherConsumer.disconnect();
-            if (cryptoTopMoversConsumer) await cryptoTopMoversConsumer.disconnect();
-            if (cryptoTopCoinsConsumer) await cryptoTopCoinsConsumer.disconnect();
-            if (cryptoTickerConsumer) await cryptoTickerConsumer.disconnect();
-            if (newsConsumer) await newsConsumer.disconnect();
-            if (stocksConsumer) await stocksConsumer.disconnect();
+            if (weatherConsumer) {
+                await weatherConsumer.stop().catch(() => {});
+                await weatherConsumer.disconnect().catch(() => {});
+            }
+            if (cryptoTopMoversConsumer) {
+                await cryptoTopMoversConsumer.stop().catch(() => {});
+                await cryptoTopMoversConsumer.disconnect().catch(() => {});
+            }
+            if (cryptoTopCoinsConsumer) {
+                await cryptoTopCoinsConsumer.stop().catch(() => {});
+                await cryptoTopCoinsConsumer.disconnect().catch(() => {});
+            }
+            if (cryptoTickerConsumer) {
+                await cryptoTickerConsumer.stop().catch(() => {});
+                await cryptoTickerConsumer.disconnect().catch(() => {});
+            }
+            if (newsConsumer) {
+                await newsConsumer.stop().catch(() => {});
+                await newsConsumer.disconnect().catch(() => {});
+            }
+            if (stocksConsumer) {
+                await stocksConsumer.stop().catch(() => {});
+                await stocksConsumer.disconnect().catch(() => {});
+            }
 
             weatherConsumer = await initWeatherConsumer(kafka, io, logger, undefined, handleCrash);
             cryptoTopMoversConsumer = await initCryptoTopMoversConsumer(kafka, io, logger, undefined, handleCrash);
@@ -286,50 +282,10 @@ async function sendTopNewsRefresh(producer: Producer, logger: pino.Logger, reaso
 
 
 // -------------------------------------------------
-// HTTP Server
+// HTTP Server & Socket Server
 // -------------------------------------------------
-const app = express();
-app.set("trust proxy", true);
-
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: process.env.FRONTEND_URL, // frontend URL origin
-        methods: ["GET", "POST"],
-        credentials: true
-    }
-});
-
-// -------------------------------------------------
-// Identity middleware
-// -------------------------------------------------
-io.use((socket, next) => {
-    try {
-        const ip = resolveClientIp(socket);
-        const guestId = resolveGuestId(socket);
-
-        socket.data.user = {
-            id: guestId,
-            type: 'guest',
-            ip,
-        };
-
-        logger.debug(
-            {
-                socketId: socket.id,
-                userId: socket.data.user.id,
-                userType: socket.data.user.type,
-                ip,
-            },
-            'Socket identity resolved during connection'
-        );
-
-        next();
-    } catch (err) {
-        logger.error({ err, socketId: socket.id }, 'Failed to resolve socket identity');
-        next(new Error('Unable to initialize socket session'));
-    }
-});
+const io = createSocketServer(server);
 
 
 // -------------------------------------------------
@@ -582,38 +538,38 @@ async function shutdown(signal: string) {
         logger.info('Cache connection closed');
 
         if (cryptoTickerConsumer) {
-            await cryptoTickerConsumer.stop();  // stop rejoin
-            await cryptoTickerConsumer.disconnect();
+            await cryptoTickerConsumer.stop().catch(() => { }); // stop rejoin
+            await cryptoTickerConsumer.disconnect().catch(() => { });
             logger.info('Kafka cryptoTickerConsumer disconnected');
         }
 
         if (weatherConsumer) {
-            await weatherConsumer.stop();  // stop rejoin
-            await weatherConsumer.disconnect();
+            await weatherConsumer.stop().catch(() => { }); // stop rejoin
+            await weatherConsumer.disconnect().catch(() => { });
             logger.info('Kafka weatherConsumer disconnected');
         }
 
         if (newsConsumer) {
-            await newsConsumer.stop();  // stop rejoin
-            await newsConsumer.disconnect();
+            await newsConsumer.stop().catch(() => { });  // stop rejoin
+            await newsConsumer.disconnect().catch(() => { });
             logger.info('Kafka newsConsumer disconnected');
         }
 
         if (stocksConsumer) {
-            await stocksConsumer.stop();  // stop rejoin
-            await stocksConsumer.disconnect();
+            await stocksConsumer.stop().catch(() => { });  // stop rejoin
+            await stocksConsumer.disconnect().catch(() => { });
             logger.info('Kafka stocksConsumer disconnected');
         }
 
         if (cryptoTopMoversConsumer) {
-            await cryptoTopMoversConsumer.stop();  // stop rejoin
-            await cryptoTopMoversConsumer.disconnect();
+            await cryptoTopMoversConsumer.stop().catch(() => { });  // stop rejoin
+            await cryptoTopMoversConsumer.disconnect().catch(() => { });
             logger.info('Kafka cryptoTopMoversConsumer disconnected');
         }
 
         if (cryptoTopCoinsConsumer) {
-            await cryptoTopCoinsConsumer.stop();  // stop rejoin
-            await cryptoTopCoinsConsumer.disconnect();
+            await cryptoTopCoinsConsumer.stop().catch(() => { });  // stop rejoin
+            await cryptoTopCoinsConsumer.disconnect().catch(() => { });
             logger.info('Kafka cryptoTopCoinsConsumer disconnected');
         }
 
@@ -637,15 +593,19 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 // Start the service
 // -------------------------------------------------
 let shuttingDown = false;
+let isRecovering = false;
 
 async function kafkaRecoveryLoop() {
     while (!shuttingDown) {
-        if (!kafkaReady) {
+        if (!kafkaReady && !isRecovering) {
+            isRecovering = true;
             try {
                 logger.info('Attempting Kafka reconnect...');
                 await initProducer();
             } catch {
                 logger.warn('Kafka still unavailable, retrying...');
+            } finally {
+                isRecovering = false;
             }
         }
         await new Promise(r => setTimeout(r, 10_000));

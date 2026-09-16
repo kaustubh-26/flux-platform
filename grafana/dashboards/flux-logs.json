@@ -160,7 +160,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service=~\"$service\"} |~ \"(?i)\\\\b(error|exception)\\\\b|failed to|failure to\"[$__range]))",
+          "expr": "sum(count_over_time({service=~\"$service\"} |~ \"(?i)\\\\b(error|exception)\\\\b|failed to|failure to\" != \"Client disconnected\" !~ \"\\\"level\\\":\\\\s*30\"[$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -232,7 +232,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "(sum(count_over_time({service=~\"$service\"} |~ \"(?i)\\\\b(error|exception)\\\\b|failed to|failure to\"[$__range])) / sum(count_over_time({service=~\"$service\"}[$__range]))) * 100",
+          "expr": "(sum(count_over_time({service=~\"$service\"} |~ \"(?i)\\\\b(error|exception)\\\\b|failed to|failure to\" != \"Client disconnected\" !~ \"\\\"level\\\":\\\\s*30\"[$__range])) / sum(count_over_time({service=~\"$service\"}[$__range]))) * 100",
           "queryType": "instant",
           "refId": "A"
         }
@@ -423,7 +423,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "{service=~\"$service\"} |~ \"(?i)\\\\b(error|exception)\\\\b|failed to|failure to\" |= \"$search\"",
+          "expr": "{service=~\"$service\"} |~ \"(?i)\\\\b(error|exception)\\\\b|failed to|failure to\" != \"Client disconnected\" !~ \"\\\"level\\\":\\\\s*30\" |= \"$search\"",
           "queryType": "range",
           "refId": "A"
         }
