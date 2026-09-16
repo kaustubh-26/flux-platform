@@ -25,6 +25,7 @@ jobs:
         id: changes
         with:
           base: HEAD~1
+          ref: HEAD
           filters: |
             weather:
               - 'services/weather-service/**'
