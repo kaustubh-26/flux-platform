@@ -1,77 +1,42 @@
-name: Build and Push Changed Docker Images
+name: Build and Push Docker Images (Manual)
 
 on:
-  workflow_run:
-    workflows: ["Tests"]
-    types:
-      - completed
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Select service to build and push'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - weather
+          - crypto
+          - stock
+          - news
+          - auth
+          - server
+          - frontend
 
 jobs:
   build-and-push:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 2
 
-      # 1. Detect which service folders changed in this push
-      - name: Check for changed services
-        id: changes
-        shell: bash
-        run: |
-          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
-            DIFF=$(git diff --name-only HEAD~1 HEAD)
-          else
-            echo "::warning::HEAD~1 unavailable; treating no services as changed"
-            DIFF=""
-          fi
-          echo "Changed files in commit:"
-          echo "$DIFF"
-          check() { echo "$DIFF" | grep -qE "$1" && echo "true" || echo "false"; }
-          {
-            echo "weather=$(check '^services/weather-service/|^package\.json$')"
-            echo "crypto=$(check  '^services/crypto-service/|^package\.json$')"
-            echo "stock=$(check   '^services/stock-service/|^package\.json$')"
-            echo "news=$(check    '^services/news-service/|^package\.json$')"
-            echo "auth=$(check    '^services/auth-service/|^package\.json$')"
-            echo "server=$(check  '^server/|^package\.json$')"
-            echo "frontend=$(check '^frontend/|^package\.json$')"
-          } >> "$GITHUB_OUTPUT"
-
-      # 2. Build TypeScript / artifacts if ANY service changed
       - name: Setup Node.js
-        if: |
-          steps.changes.outputs.weather == 'true' ||
-          steps.changes.outputs.crypto == 'true' ||
-          steps.changes.outputs.stock == 'true' ||
-          steps.changes.outputs.news == 'true' ||
-          steps.changes.outputs.auth == 'true' ||
-          steps.changes.outputs.server == 'true' ||
-          steps.changes.outputs.frontend == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
       - name: Install dependencies & compile TypeScript
-        if: |
-          steps.changes.outputs.weather == 'true' ||
-          steps.changes.outputs.crypto == 'true' ||
-          steps.changes.outputs.stock == 'true' ||
-          steps.changes.outputs.news == 'true' ||
-          steps.changes.outputs.auth == 'true' ||
-          steps.changes.outputs.server == 'true' ||
-          steps.changes.outputs.frontend == 'true'
         run: |
           npm ci
           npm run build --workspaces
 
-      # 3. Setup Docker & QEMU for ARMv7 emulation
       - name: Set up QEMU (Required for 32-bit ARM on Pi)
         uses: docker/setup-qemu-action@v3
 
@@ -84,11 +49,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 4. CONDITIONAL BUILDS: Only runs if that specific service changed
-
       # --- Weather Service ---
       - name: Build & Push Weather Service
-        if: steps.changes.outputs.weather == 'true'
+        if: ${{ inputs.service == 'all' || inputs.service == 'weather' }}
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -100,7 +63,7 @@ jobs:
 
       # --- Crypto Service ---
       - name: Build & Push Crypto Service
-        if: steps.changes.outputs.crypto == 'true'
+        if: ${{ inputs.service == 'all' || inputs.service == 'crypto' }}
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -112,7 +75,7 @@ jobs:
 
       # --- Stock Service ---
       - name: Build & Push Stock Service
-        if: steps.changes.outputs.stock == 'true'
+        if: ${{ inputs.service == 'all' || inputs.service == 'stock' }}
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -124,7 +87,7 @@ jobs:
 
       # --- News Service ---
       - name: Build & Push News Service
-        if: steps.changes.outputs.news == 'true'
+        if: ${{ inputs.service == 'all' || inputs.service == 'news' }}
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -136,7 +99,7 @@ jobs:
 
       # --- Auth Service ---
       - name: Build & Push Auth Service
-        if: steps.changes.outputs.auth == 'true'
+        if: ${{ inputs.service == 'all' || inputs.service == 'auth' }}
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -148,7 +111,7 @@ jobs:
 
       # --- Server (Gateway BFF) ---
       - name: Build & Push Server
-        if: steps.changes.outputs.server == 'true'
+        if: ${{ inputs.service == 'all' || inputs.service == 'server' }}
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -160,7 +123,7 @@ jobs:
 
       # --- Frontend ---
       - name: Build & Push Frontend
-        if: steps.changes.outputs.frontend == 'true'
+        if: ${{ inputs.service == 'all' || inputs.service == 'frontend' }}
         uses: docker/build-push-action@v5
         with:
           context: .
