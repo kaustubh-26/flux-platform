@@ -10,6 +10,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-device
+  cancel-in-progress: false
+
 jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
@@ -18,8 +22,50 @@ jobs:
     steps:
       - name: Deploy on device
         run: |
-          cd ${{ secrets.DEVICE_DIR }}
-          git pull origin main
-          docker compose pull
+          set -euo pipefail
+          cd "${{ secrets.DEVICE_DIR }}"
+
+          # 1. Guarantee clean git state without merge conflicts
+          git fetch origin main
+          git reset --hard origin/main
+
+          # 2. Stop all containers to free up CPU and RAM
+          docker compose stop
+
+          # 3. Flush unwritten data to SD card immediately
+          sync
+
+          # 4. Dynamically wait until system load drops below 2.0 (max 45s)
+          echo "Waiting for system to settle..."
+          for i in {1..15}; do
+            LOAD=$(cut -d' ' -f1 /proc/loadavg)
+            if awk "BEGIN {exit !($LOAD < 2.0)}"; then
+              echo "System is idle (load: $LOAD). Proceeding to pull."
+              break
+            fi
+            echo "Current load: $LOAD, waiting for idle state..."
+            sleep 3
+          done
+
+          # 5. Pull images one by one without any contention
+          for s in $(docker compose config --services); do echo "Pulling $s..."; docker compose pull "$s"; done
+
+          # 6. Start all containers cleanly
           docker compose up -d --remove-orphans
+          
+          # 7. Clean up unused image layers to save SD card space
           docker image prune -f
+
+          # 8. Post-deploy check (No jq required, waits 20s for Kafka/services)
+          echo "Waiting 20s for services to initialize..."
+          sleep 20
+          for s in $(docker compose config --services); do
+            status=$(docker compose ps --status running --services | grep -w "$s" || true)
+            if [ -z "$status" ]; then
+              echo "::error::Service $s failed to start!"
+              docker compose logs --tail 30 "$s"
+              exit 1
+            fi
+          done
+          echo "All services running successfully!"
+
