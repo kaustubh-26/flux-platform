@@ -241,6 +241,7 @@ services:
       - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy.txt:/usr/share/nginx/html/deploy.txt:ro
     depends_on:
       - frontend
       - server

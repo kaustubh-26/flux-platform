@@ -24,48 +24,90 @@ jobs:
         run: |
           set -euo pipefail
           cd "${{ secrets.DEVICE_DIR }}"
+          LOG_FILE="${{ secrets.DEVICE_DIR }}/deploy.txt"
 
-          # 1. Guarantee clean git state without merge conflicts
-          git fetch origin main
-          git reset --hard origin/main
+          # Guarantee deploy.txt exists so Docker bind-mount never creates a directory
+          touch "$LOG_FILE"
 
-          # 2. Stop all containers to free up CPU and RAM
-          docker compose stop
+          {
+            echo "=========================================="
+            echo "Deploy started at: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "=========================================="
 
-          # 3. Flush unwritten data to SD card immediately
-          sync
+            # 1. Guarantee clean git state without merge conflicts
+            git fetch origin main
+            git reset --hard origin/main
 
-          # 4. Dynamically wait until system load drops below 2.0 (max 45s)
-          echo "Waiting for system to settle..."
-          for i in {1..15}; do
-            LOAD=$(cut -d' ' -f1 /proc/loadavg)
-            if awk "BEGIN {exit !($LOAD < 2.0)}"; then
-              echo "System is idle (load: $LOAD). Proceeding to pull."
-              break
-            fi
-            echo "Current load: $LOAD, waiting for idle state..."
-            sleep 3
-          done
+            # 2. Stop all containers to free up CPU and RAM
+            docker compose stop
 
-          # 5. Pull images one by one without any contention
-          for s in $(docker compose config --services); do echo "Pulling $s..."; docker compose pull "$s"; done
+            # 3. Flush unwritten data to SD card immediately
+            sync
 
-          # 6. Start all containers cleanly
-          docker compose up -d --remove-orphans
-          
-          # 7. Clean up unused image layers to save SD card space
-          docker image prune -f
+            # 4. Dynamically wait until system load drops below 2.0 (max 45s)
+            echo "Waiting for system to settle..."
+            for i in {1..15}; do
+              LOAD=$(cut -d' ' -f1 /proc/loadavg)
+              if awk "BEGIN {exit !($LOAD < 2.0)}"; then
+                echo "System is idle (load: $LOAD). Proceeding to pull."
+                break
+              fi
+              echo "Current load: $LOAD, waiting for idle state..."
+              sleep 3
+            done
 
-          # 8. Post-deploy check (No jq required, waits 20s for Kafka/services)
-          echo "Waiting 20s for services to initialize..."
-          sleep 20
-          for s in $(docker compose config --services); do
-            status=$(docker compose ps --status running --services | grep -w "$s" || true)
-            if [ -z "$status" ]; then
-              echo "::error::Service $s failed to start!"
-              docker compose logs --tail 30 "$s"
-              exit 1
-            fi
-          done
-          echo "All services running successfully!"
+            # 5. Pull images one by one without any contention
+            for s in $(docker compose config --services); do
+              echo "Pulling $s..."
+              docker compose pull "$s"
+            done
+
+            # 6. Start all containers cleanly
+            docker compose up -d --remove-orphans
+            
+            # 7. Clean up unused image layers to save SD card space
+            docker image prune -f
+
+            # 8. Post-deploy check (No jq required, waits 20s for Kafka/services)
+            echo "Waiting 20s for services to initialize..."
+            sleep 20
+            for s in $(docker compose config --services); do
+              status=$(docker compose ps --status running --services | grep -w "$s" || true)
+              if [ -z "$status" ]; then
+                echo "::error::Service $s failed to start!"
+                docker compose logs --tail 30 "$s"
+                exit 1
+              fi
+            done
+            echo "All services running successfully!"
+            echo "Deploy finished at: $(date '+%Y-%m-%d %H:%M:%S')"
+          } 2>&1 | tee "$LOG_FILE"
+
+      - name: Send Deploy Log to Discord
+        if: always()
+        run: |
+          LOG_FILE="${{ secrets.DEVICE_DIR }}/deploy.txt"
+
+          if [ ! -f "$LOG_FILE" ]; then
+            echo "No log file found at $LOG_FILE"
+            exit 0
+          fi
+
+          if [ "${{ job.status }}" == "success" ]; then
+            STATUS_EMOJI="✅ **Deployment Successful**"
+          else
+            STATUS_EMOJI="❌ **Deployment FAILED**"
+          fi
+
+          COMMIT_MSG=$(git -C "${{ secrets.DEVICE_DIR }}" log -1 --pretty=format:"%s (%h by %an)" 2>/dev/null || echo "N/A")
+
+          MESSAGE=$(printf "%s on Raspberry Pi!\n**Commit:** %s\n**Status:** %s\nAttached is the deployment log:" \
+            "$STATUS_EMOJI" "$COMMIT_MSG" "${{ job.status }}")
+
+          curl -s -X POST \
+            -F "content=${MESSAGE}" \
+            -F "file=@${LOG_FILE};filename=deploy.txt" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}"
+
+
 
